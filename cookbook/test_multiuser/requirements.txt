@@ -1,0 +1,7 @@
+pocketflow
+google-genai
+sentence-transformers
+faiss-cpu
+numpy
+pyyaml
+
