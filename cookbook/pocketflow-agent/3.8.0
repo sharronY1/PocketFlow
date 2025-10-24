@@ -1,0 +1,8 @@
+Requirement already satisfied: aiohttp in d:\anaconda\lib\site-packages (3.10.5)
+Requirement already satisfied: aiohappyeyeballs>=2.3.0 in d:\anaconda\lib\site-packages (from aiohttp) (2.4.0)
+Requirement already satisfied: aiosignal>=1.1.2 in d:\anaconda\lib\site-packages (from aiohttp) (1.2.0)
+Requirement already satisfied: attrs>=17.3.0 in d:\anaconda\lib\site-packages (from aiohttp) (23.1.0)
+Requirement already satisfied: frozenlist>=1.1.1 in d:\anaconda\lib\site-packages (from aiohttp) (1.4.0)
+Requirement already satisfied: multidict<7.0,>=4.5 in d:\anaconda\lib\site-packages (from aiohttp) (6.0.4)
+Requirement already satisfied: yarl<2.0,>=1.0 in d:\anaconda\lib\site-packages (from aiohttp) (1.11.0)
+Requirement already satisfied: idna>=2.0 in d:\anaconda\lib\site-packages (from yarl<2.0,>=1.0->aiohttp) (3.7)

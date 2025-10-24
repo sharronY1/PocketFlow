@@ -8,6 +8,14 @@ between different perception implementations:
 """
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
+import os
+import time
+from pathlib import Path
+
+try:
+    import pyautogui  # type: ignore
+except Exception:
+    pyautogui = None
 
 
 class PerceptionInterface(ABC):
@@ -247,6 +255,88 @@ class XRPerception(PerceptionInterface):
         )
 
 
+class UnityPyAutoGUIPerception(PerceptionInterface):
+    """
+    Perception implementation that interacts with a running Unity game window via pyautogui.
+
+    - Actions:
+      - "forward"  -> press 'w'
+      - "backward" -> press 's'
+    - Perception:
+      - Captures a screenshot (full screen or specified region)
+      - Returns a placeholder list containing the screenshot path as visible "objects"
+
+    Note: Ensure the Unity window has focus when running. This class does not switch focus.
+    """
+
+    def __init__(
+        self,
+        screenshot_dir: Optional[str] = None,
+        capture_region: Optional[tuple] = None,  # (left, top, width, height)
+        keymap: Optional[Dict[str, str]] = None,
+        step_sleep_seconds: float = 0.3,
+    ):
+        if pyautogui is None:
+            raise RuntimeError("pyautogui is not installed. Please `pip install pyautogui`.")
+
+        self.capture_region = capture_region
+        self.keymap = keymap or {"forward": "w", "backward": "s"}
+        self.step_sleep_seconds = step_sleep_seconds
+        self.agent_steps: Dict[str, int] = {}
+
+        base_dir = Path(screenshot_dir) if screenshot_dir else Path.cwd() / "screenshots"
+        base_dir.mkdir(parents=True, exist_ok=True)
+        self.screenshot_dir = base_dir
+
+    def _capture(self, agent_id: str) -> str:
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        filename = f"{agent_id}_{ts}_{int(time.time()*1000)%1000:03d}.png"
+        path = self.screenshot_dir / filename
+
+        img = pyautogui.screenshot(region=self.capture_region) if self.capture_region else pyautogui.screenshot()
+        img.save(path)
+        return str(path)
+
+    def get_visible_objects(self, agent_id: str, position: Any) -> List[str]:
+        path = self._capture(agent_id)
+        return [f"screenshot:{path}"]
+
+    def get_agent_state(self, agent_id: str) -> Dict[str, Any]:
+        return {
+            "position": self.agent_steps.get(agent_id, 0),
+            "rotation": None,
+            "velocity": None,
+        }
+
+    def execute_action(self, agent_id: str, action: str, params: Optional[Dict] = None) -> Dict[str, Any]:
+        key = self.keymap.get(action)
+        if key:
+            try:
+                pyautogui.keyDown(key)
+                time.sleep(self.step_sleep_seconds)
+            finally:
+                pyautogui.keyUp(key)
+
+        # Update logical step counter
+        self.agent_steps[agent_id] = self.agent_steps.get(agent_id, 0) + 1
+
+        # Capture new perception after movement
+        path = self._capture(agent_id)
+        return {
+            "position": self.agent_steps[agent_id],
+            "rotation": None,
+            "velocity": None,
+            "visible_objects": [f"screenshot:{path}"],
+        }
+
+    def get_environment_info(self) -> Dict[str, Any]:
+        return {
+            "type": "unity",
+            "screenshot_dir": str(self.screenshot_dir),
+            "capture_region": self.capture_region,
+        }
+
+
 # Factory function: convenient for creating different perception implementations
 def create_perception(perception_type: str = "mock", **kwargs) -> PerceptionInterface:
     """
@@ -272,6 +362,13 @@ def create_perception(perception_type: str = "mock", **kwargs) -> PerceptionInte
         return XRPerception(
             xr_client=kwargs.get("xr_client"),
             config=kwargs.get("config")
+        )
+    elif perception_type == "unity":
+        return UnityPyAutoGUIPerception(
+            screenshot_dir=kwargs.get("screenshot_dir"),
+            capture_region=kwargs.get("capture_region"),
+            keymap=kwargs.get("keymap"),
+            step_sleep_seconds=kwargs.get("step_sleep_seconds", 0.3),
         )
     else:
         raise ValueError(f"Unknown perception type: {perception_type}")

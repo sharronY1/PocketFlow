@@ -2,6 +2,7 @@
 Multi-Agent XR Environment Exploration System - Main Program
 """
 import threading
+import os
 from utils import create_environment, create_memory
 from utils.perception_interface import create_perception, PerceptionInterface
 from flow import create_agent_flow
@@ -85,19 +86,22 @@ def main(perception_type: str = "mock"):
     print("Multi-Agent XR Environment Exploration System")
     print("="*60)
     
-    # Create global environment
+    # Create global environment (still used for positions/messages even in unity mode)
     print("\n[System] Creating environment...")
     global_env = create_environment(num_positions=10)
-    global_env["max_steps"] = 15  # Each agent explores max 15 steps
+    global_env["max_steps"] = int(os.getenv("MAX_STEPS", "15"))
     
-    print(f"[System] Environment created with {global_env['num_positions']} positions")
-    print("\n[System] Environment layout:")
-    for pos in sorted(global_env["objects"].keys()):
-        print(f"  Position {pos}: {global_env['objects'][pos]}")
+    # Only print mock layout when using mock
+    if perception_type == "mock":
+        print(f"[System] Environment created with {global_env['num_positions']} positions")
+        print("\n[System] Environment layout:")
+        for pos in sorted(global_env["objects"].keys()):
+            print(f"  Position {pos}: {global_env['objects'][pos]}")
     
     # Create perception interface
     print(f"\n[System] Creating {perception_type} perception interface...")
     if perception_type == "mock":
+        # perception is a mock perception interface
         perception = create_perception("mock", env=global_env)
         print("[System] Using MockPerception (simulated environment)")
     elif perception_type == "xr":
@@ -106,6 +110,27 @@ def main(perception_type: str = "mock"):
         # perception = create_perception("xr", xr_client=xr_client, config={...})
         print("[System] XR perception not yet implemented, falling back to mock")
         perception = create_perception("mock", env=global_env)
+    elif perception_type == "unity":
+        # Unity window must be focused. Configure optional screenshot directory/region via env vars.
+        screenshot_dir = os.getenv("SCREENSHOT_DIR")
+        # SCREENSHOT_REGION format: left,top,width,height
+        region_str = os.getenv("SCREENSHOT_REGION", "").strip()
+        capture_region = None
+        if region_str:
+            try:
+                parts = [int(x) for x in region_str.split(',')]
+                if len(parts) == 4:
+                    capture_region = tuple(parts)  # type: ignore
+            except Exception:
+                pass
+        perception = create_perception(
+            "unity",
+            screenshot_dir=screenshot_dir,
+            capture_region=capture_region,
+            keymap={"forward": os.getenv("KEY_FORWARD", "w"), "backward": os.getenv("KEY_BACKWARD", "s")},
+            step_sleep_seconds=float(os.getenv("STEP_SLEEP", "0.3")),
+        )
+        print("[System] Using UnityPyAutoGUIPerception (pyautogui). Make sure the Unity window is focused.")
     else:
         raise ValueError(f"Unknown perception type: {perception_type}")
     
@@ -155,5 +180,5 @@ def main(perception_type: str = "mock"):
 
 
 if __name__ == "__main__":
-    main()
+    main("unity")
 

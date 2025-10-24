@@ -1,7 +1,8 @@
 pocketflow
-google-genai
+openai
 sentence-transformers
 faiss-cpu
 numpy
 pyyaml
+pyautogui
 
