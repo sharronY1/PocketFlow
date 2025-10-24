@@ -89,7 +89,7 @@ def main(perception_type: str = "mock"):
     # Create global environment (still used for positions/messages even in unity mode)
     print("\n[System] Creating environment...")
     global_env = create_environment(num_positions=10)
-    global_env["max_steps"] = int(os.getenv("MAX_STEPS", "15"))
+    global_env["max_steps"] = int(os.getenv("MAX_STEPS", "3"))
     
     # Only print mock layout when using mock
     if perception_type == "mock":

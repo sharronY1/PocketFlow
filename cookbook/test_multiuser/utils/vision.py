@@ -24,31 +24,24 @@ def _to_data_url(image_path: str) -> str:
 def caption_image(
     image_path: str,
     prompt: Optional[str] = None,
-    api_key: Optional[str] = None,
-    base_url: Optional[str] = None,
-    model: Optional[str] = None,
-    temperature: float = 0.2,
+    api_key: Optional[str] = "sk-emoNOZW80N1emlK5LxxfntmxxqyFyJEdT18PA3AUWin9qgkx",
+    base_url: Optional[str] = "https://api.xinyun.ai/v1",
+    model: Optional[str] = "gemini-2.5-pro",
+    temperature: float = 0.0,
 ) -> str:
     """
     Return a short caption for the image. Uses OpenAI vision if available; otherwise returns a filename-based fallback.
     """
-    # Prepare fallback name first to avoid NameError in any branch
-    try:
-        _fallback_name = Path(image_path).name
-    except Exception:
-        _fallback_name = "image"
-
     # Fallback if client is not available
     if OpenAI is None:
-        return f"photo({_fallback_name})"
+        return f"photo({Path(image_path).name})"
 
     api_key = api_key or os.getenv("OPENAI_API_KEY", "")
     if not api_key:
-        return f"photo({_fallback_name})"
+        return f"photo({Path(image_path).name})"
 
     base_url = base_url or os.getenv("OPENAI_BASE_URL")
-    # Prefer vision-specific model, fallback to generic model, finally to a sane default
-    model = model or os.getenv("OPENAI_VISION_MODEL", os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
+    model = model or os.getenv("OPENAI_VISION_MODEL", os.getenv("OPENAI_MODEL", "gemini-2.5-pro"))
 
     try:
         client = OpenAI(api_key=api_key, base_url=base_url)
@@ -66,8 +59,9 @@ def caption_image(
             temperature=0.2,
         )
         text = resp.choices[0].message.content or ""
-        return text.strip() or f"photo({_fallback_name})"
+        print(f"[DEBUG]caption_image: {text}")
+        return text.strip() or f"photo({Path(image_path).name})"
     except Exception:
-        return f"photo({_fallback_name})"
+        return f"photo({Path(image_path).name})"
 
 
