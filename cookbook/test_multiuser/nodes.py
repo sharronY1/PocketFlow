@@ -10,6 +10,7 @@ from utils import (
     add_message,
     get_messages_for
 )
+from utils.vision import caption_image
 from utils.perception_interface import PerceptionInterface
 import yaml
 import threading
@@ -44,7 +45,15 @@ class PerceptionNode(Node):
     
     def post(self, shared, prep_res, exec_res):
         shared["visible_objects"] = exec_res
+        # If unity screenshot path is present, generate a caption for downstream text-based retrieval
+        # Example of exec_res: ["screenshot:E:/.../img.png"] or ["chair","table"] for mock
+        caption = None
+        if exec_res and isinstance(exec_res[0], str) and exec_res[0].startswith("screenshot:"):
+            image_path = exec_res[0].split("screenshot:", 1)[1]
+            caption = caption_image(image_path)
+        shared["visible_caption"] = caption or ", ".join(map(str, exec_res))
         print(f"[{shared['agent_id']}] Position {shared['position']}: sees {exec_res}")
+        print(f"[{shared['agent_id']}] Caption: {shared['visible_caption']}")
         return "default"
 
 
@@ -52,11 +61,11 @@ class RetrieveMemoryNode(Node):
     """Memory retrieval node: Retrieve relevant history from FAISS"""
     
     def prep(self, shared):
-        visible = shared["visible_objects"]
+        visible_caption = shared.get("visible_caption") or ", ".join(map(str, shared.get("visible_objects", [])))
         position = shared["position"]
         
-        # Construct query text
-        query = f"What do I know about position {position} with objects {visible}?"
+        # Construct query text using caption (works for both mock text and image-derived caption)
+        query = f"What do I know about position {position} with what I see: {visible_caption}?"
         return query, shared["memory_index"], shared["memory_texts"]
     
     def exec(self, prep_res):
