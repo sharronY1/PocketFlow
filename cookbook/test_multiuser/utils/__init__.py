@@ -6,10 +6,14 @@ from .embedding import get_embedding, get_embeddings_batch
 from .memory import create_memory, add_to_memory, search_memory
 from .environment import (
     create_environment,
-    get_visible_objects,
-    execute_action,
     add_message,
     get_messages_for
+)
+from .perception_interface import (
+    PerceptionInterface,
+    MockPerception,
+    XRPerception,
+    create_perception
 )
 
 __all__ = [
@@ -20,9 +24,11 @@ __all__ = [
     'add_to_memory',
     'search_memory',
     'create_environment',
-    'get_visible_objects',
-    'execute_action',
     'add_message',
     'get_messages_for',
+    'PerceptionInterface',
+    'MockPerception',
+    'XRPerception',
+    'create_perception',
 ]
 

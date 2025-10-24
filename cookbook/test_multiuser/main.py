@@ -1,55 +1,58 @@
 """
-Multi-Agent XR环境探索系统 - 主程序
+Multi-Agent XR Environment Exploration System - Main Program
 """
 import threading
 from utils import create_environment, create_memory
+from utils.perception_interface import create_perception, PerceptionInterface
 from flow import create_agent_flow
 import time
 
 
-def run_agent(agent_id: str, global_env: dict, max_steps: int = 20):
+def run_agent(agent_id: str, global_env: dict, perception: PerceptionInterface, max_steps: int = 20):
     """
-    运行单个Agent的探索流程
+    Run exploration flow for a single agent
     
     Args:
-        agent_id: Agent标识
-        global_env: 全局共享环境
-        max_steps: 最大探索步数
+        agent_id: Agent identifier
+        global_env: Global shared environment
+        perception: Perception interface instance
+        max_steps: Maximum exploration steps
     """
     print(f"\n{'='*60}")
     print(f"Starting {agent_id}...")
     print(f"{'='*60}\n")
     
-    # 创建Agent私有的shared store
+    # Create agent's private shared store
     agent_shared = {
         "agent_id": agent_id,
         "global_env": global_env,
+        "perception": perception,  # Add perception interface
         "position": 0,
         "step_count": 0,
         
-        # 记忆系统
+        # Memory system
         "memory_index": create_memory(dimension=384),
         "memory_texts": [],
         
-        # 当前状态
+        # Current state
         "visible_objects": [],
         "retrieved_memories": [],
         "other_agent_messages": [],
         
-        # 决策结果
+        # Decision results
         "action": None,
         "action_reason": "",
         "message_to_others": "",
         
-        # 探索历史
+        # Exploration history
         "explored_objects": set(),
         "action_history": []
     }
     
-    # 初始化环境中的agent位置
+    # Initialize agent position in environment
     global_env["agent_positions"][agent_id] = 0
     
-    # 创建并运行Flow
+    # Create and run flow
     flow = create_agent_flow()
     
     try:
@@ -59,7 +62,7 @@ def run_agent(agent_id: str, global_env: dict, max_steps: int = 20):
         import traceback
         traceback.print_exc()
     
-    # 打印总结
+    # Print summary
     print(f"\n{'='*60}")
     print(f"{agent_id} Exploration Summary")
     print(f"{'='*60}")
@@ -71,49 +74,71 @@ def run_agent(agent_id: str, global_env: dict, max_steps: int = 20):
     print(f"{'='*60}\n")
 
 
-def main():
-    """主程序入口"""
+def main(perception_type: str = "mock"):
+    """
+    Main program entry point
+    
+    Args:
+        perception_type: Perception type ("mock" or "xr")
+    """
     print("\n" + "="*60)
     print("Multi-Agent XR Environment Exploration System")
     print("="*60)
     
-    # 创建全局环境
+    # Create global environment
     print("\n[System] Creating environment...")
     global_env = create_environment(num_positions=10)
-    global_env["max_steps"] = 15  # 每个agent最多探索15步
+    global_env["max_steps"] = 15  # Each agent explores max 15 steps
     
     print(f"[System] Environment created with {global_env['num_positions']} positions")
     print("\n[System] Environment layout:")
     for pos in sorted(global_env["objects"].keys()):
         print(f"  Position {pos}: {global_env['objects'][pos]}")
     
-    # 创建两个Agent线程
+    # Create perception interface
+    print(f"\n[System] Creating {perception_type} perception interface...")
+    if perception_type == "mock":
+        perception = create_perception("mock", env=global_env)
+        print("[System] Using MockPerception (simulated environment)")
+    elif perception_type == "xr":
+        # TODO: Configure real XR client
+        # xr_client = YourXRClient(host="localhost", port=8080)
+        # perception = create_perception("xr", xr_client=xr_client, config={...})
+        print("[System] XR perception not yet implemented, falling back to mock")
+        perception = create_perception("mock", env=global_env)
+    else:
+        raise ValueError(f"Unknown perception type: {perception_type}")
+    
+    env_info = perception.get_environment_info()
+    print(f"[System] Environment info: {env_info}")
+    
+    # Create two agent threads
     print("\n[System] Starting 2 agents...")
     
     agent1_thread = threading.Thread(
         target=run_agent,
-        args=("Agent1", global_env, 15),
+        args=("Agent1", global_env, perception, 15),
         name="Agent1Thread"
     )
     
     agent2_thread = threading.Thread(
         target=run_agent,
-        args=("Agent2", global_env, 15),
+        args=("Agent2", global_env, perception, 15),
         name="Agent2Thread"
     )
     
-    # 启动线程
+    # Start threads
     start_time = time.time()
     agent1_thread.start()
     agent2_thread.start()
     
-    # 等待两个agent完成
+    # Wait for both agents to complete
     agent1_thread.join()
     agent2_thread.join()
     
     elapsed_time = time.time() - start_time
     
-    # 打印整体总结
+    # Print overall summary
     print("\n" + "="*60)
     print("FINAL SYSTEM SUMMARY")
     print("="*60)

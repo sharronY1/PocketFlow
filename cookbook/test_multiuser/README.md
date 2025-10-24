@@ -8,6 +8,7 @@
 - **RAG记忆系统**：使用FAISS向量数据库存储和检索探索历史
 - **Agent间通信**：通过消息队列共享发现的信息
 - **自主决策**：基于LLM的智能决策，综合考虑当前状态、历史记忆和其他Agent信息
+- **感知抽象层**：⭐ **核心架构设计** - 支持模拟环境和真实XR应用的无缝切换
 - **简单动作空间**：前进/后退两个基础动作
 
 ## 项目结构
@@ -15,18 +16,20 @@
 ```
 test_multiuser/
 ├── docs/
-│   └── design.md          # 详细设计文档
+│   └── design.md              # 详细设计文档
 ├── utils/
 │   ├── __init__.py
-│   ├── call_llm.py        # LLM调用（Gemini Flash）
-│   ├── embedding.py       # 文本embedding（sentence-transformers）
-│   ├── memory.py          # FAISS记忆管理
-│   └── environment.py     # 环境模拟
-├── nodes.py               # Agent节点定义
-├── flow.py                # Flow定义
-├── main.py                # 主程序
-├── requirements.txt       # 依赖
-└── README.md
+│   ├── call_llm.py            # LLM调用（Gemini Flash）
+│   ├── embedding.py           # 文本embedding（sentence-transformers）
+│   ├── memory.py              # FAISS记忆管理
+│   ├── environment.py         # 环境模拟和消息通信
+│   └── perception_interface.py # ⭐ 感知抽象层（核心）
+├── nodes.py                   # Agent节点定义
+├── flow.py                    # Flow定义
+├── main.py                    # 主程序
+├── requirements.txt           # 依赖
+├── README.md                  # 项目说明
+└── PERCEPTION_GUIDE.md        # ⭐ 感知层设计指南
 ```
 
 ## 安装
@@ -94,28 +97,49 @@ UpdateMemory (更新记忆) ← Execution (执行) ←────────�
 
 ## 设计特点
 
-### 1. 简单而有效的RAG
+### 1. 感知抽象层 ⭐ **核心架构**
+
+**问题**：如何让同一套框架既能用于开发测试，又能接入真实XR应用？
+
+**解决方案**：定义 `PerceptionInterface` 抽象接口，支持多种实现：
+
+```python
+# 开发阶段：使用模拟环境
+perception = create_perception("mock", env=mock_env)
+
+# 生产阶段：接入真实XR应用
+perception = create_perception("xr", xr_client=unity_client)
+```
+
+**优势**：
+- 框架代码（nodes.py, flow.py）无需修改
+- 开发时用Mock验证逻辑，上线时切换到真实XR
+- 支持多种XR平台（Unity、Unreal、WebXR等）
+
+详见：[PERCEPTION_GUIDE.md](./PERCEPTION_GUIDE.md)
+
+### 2. 简单而有效的RAG
 
 使用轻量级模型（all-MiniLM-L6-v2）和FAISS实现快速记忆检索：
 - 每次决策前检索相关历史
 - 避免重复探索已知区域
 - 存储成本低，检索速度快
 
-### 2. Agent间异步通信
+### 3. Agent间异步通信
 
 通过消息队列实现：
 - Agent可以分享发现
 - 避免冲突和重复工作
 - 松耦合设计，易于扩展
 
-### 3. 线程安全
+### 4. 线程安全
 
 使用锁保护共享资源：
-- 环境状态访问
 - 消息队列读写
-- 位置更新
+- 全局探索记录
+- 感知实现内部的线程安全
 
-### 4. LLM驱动的智能决策
+### 5. LLM驱动的智能决策
 
 每个决策综合考虑：
 - 当前观察（可见物体）
@@ -125,12 +149,22 @@ UpdateMemory (更新记忆) ← Execution (执行) ←────────�
 
 ## 扩展方向
 
-1. **更多动作**：左转、右转、交互等
-2. **更复杂环境**：2D/3D空间、动态物体
-3. **更多Agent**：支持>2个Agent协作
-4. **任务导向**：寻找特定物体、完成特定任务
-5. **可视化**：实时显示Agent位置和探索进度
-6. **持久化**：保存探索历史到数据库
+### 当前待完成
+
+1. **接入真实XR应用** ⭐ **最重要**
+   - 确定目标XR平台（Unity/Unreal/WebXR等）
+   - 实现 `XRPerception` 类
+   - 测试真实环境下的Agent行为
+   - 参考：[PERCEPTION_GUIDE.md](./PERCEPTION_GUIDE.md)
+
+### 未来增强
+
+2. **更多动作**：左转、右转、跳跃、交互等
+3. **更复杂环境**：2D/3D空间、动态物体、障碍物
+4. **更多Agent**：支持>2个Agent协作
+5. **任务导向**：寻找特定物体、完成特定任务
+6. **可视化**：实时显示Agent位置和探索进度
+7. **持久化**：保存探索历史到数据库
 
 ## 技术栈
 

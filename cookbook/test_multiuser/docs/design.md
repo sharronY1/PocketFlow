@@ -67,12 +67,38 @@ flowchart TD
    - *Necessity*: RetrieveMemoryNode和UpdateMemoryNode使用
    - *Implementation*: 使用faiss-cpu
 
-4. **Environment模拟** (`utils/environment.py`)
-   - *Functions*:
-     - `get_visible_objects(position, objects)`: 获取当前位置可见物体
-     - `execute_action(agent_id, action, env)`: 执行动作并更新位置
+4. **感知接口抽象层** (`utils/perception_interface.py`) ⭐ **核心设计**
+   - *Interface*: `PerceptionInterface` (抽象基类)
+     - `get_visible_objects(agent_id, position)`: 获取可见物体
+     - `get_agent_state(agent_id)`: 获取Agent状态
+     - `execute_action(agent_id, action, params)`: 执行动作
+     - `get_environment_info()`: 获取环境信息
+   
+   - *Implementations*:
+     - **`MockPerception`**: 模拟感知（开发/测试用）
+       - 使用简单字典模拟环境
+       - 一维线性空间，每个位置有1-3个物体
+     
+     - **`XRPerception`**: 真实XR应用感知（生产用）
+       - 连接真实XR应用的API/SDK
+       - 需要根据具体XR平台实现（Unity/Unreal/WebXR等）
+       - 待接入实际XR软件后实现
+   
+   - *Factory*: `create_perception(type, **kwargs)` 工厂函数
+   
    - *Necessity*: PerceptionNode和ExecutionNode使用
-   - *Implementation*: 简单的列表索引模拟一维环境
+   - *Why*: 
+     - 分离感知逻辑与框架逻辑
+     - 轻松切换模拟环境和真实XR应用
+     - 易于测试和扩展
+
+5. **Environment工具** (`utils/environment.py`)
+   - *Functions*:
+     - `create_environment()`: 创建模拟环境
+     - `add_message()`: 添加Agent间消息
+     - `get_messages_for()`: 获取Agent消息
+   - *Necessity*: 消息通信使用
+   - *Implementation*: 简单的消息队列实现
 
 ## Data Design
 
@@ -96,6 +122,8 @@ global_env = {
 ```python
 agent_shared = {
     "agent_id": "agent1",
+    "global_env": global_env,  # 全局环境引用
+    "perception": perception,  # 感知接口实例（MockPerception或XRPerception）
     "position": 0,
     "step_count": 0,
     
@@ -111,6 +139,7 @@ agent_shared = {
     # 决策结果
     "action": None,  # "forward" or "backward"
     "action_reason": "",
+    "message_to_others": "",
     
     # 探索历史
     "explored_objects": set(),
@@ -120,10 +149,12 @@ agent_shared = {
 
 ## Node Design
 
-### 1. PerceptionNode
+### 1. PerceptionNode ⭐ **已重构使用感知接口**
 - *Type*: Regular Node
-- *prep*: 读取agent_id和global_env
-- *exec*: 调用`get_visible_objects()`获取当前位置可见物体
+- *prep*: 读取`perception`接口、`agent_id`和`position`
+- *exec*: 调用`perception.get_visible_objects(agent_id, position)`获取可见物体
+  - 模拟环境：从字典读取
+  - 真实XR：调用XR应用API获取场景数据
 - *post*: 写入`visible_objects`到shared
 
 ### 2. RetrieveMemoryNode
@@ -149,13 +180,15 @@ agent_shared = {
   - 验证action字段（"forward" or "backward"）
 - *post*: 写入`action`和`action_reason`到shared
 
-### 5. ExecutionNode
+### 5. ExecutionNode ⭐ **已重构使用感知接口**
 - *Type*: Regular Node
-- *prep*: 读取`action`和`agent_id`
-- *exec*: 调用`execute_action()`更新环境中的agent位置
+- *prep*: 读取`perception`接口、`agent_id`和`action`
+- *exec*: 调用`perception.execute_action(agent_id, action)`执行动作
+  - 模拟环境：更新字典中的位置
+  - 真实XR：调用XR应用API执行Agent动作
+  - 返回新状态（包含position、visible_objects等）
 - *post*: 
-  - 更新shared中的`position`和`step_count`
-  - 更新global_env中的agent位置
+  - 更新shared中的`position`、`visible_objects`和`step_count`
   - 发送消息到message_queue告知其他agent
 
 ### 6. UpdateMemoryNode
@@ -173,9 +206,42 @@ agent_shared = {
 
 ## Implementation Notes
 
-- **并行运行**：使用Python的threading或multiprocessing让两个agent并行运行
-- **简单环境**：一维数组模拟环境，每个位置有1-3个物体
+- **并行运行**：使用Python的threading让两个agent并行运行
+- **感知抽象层**：⭐ **核心设计改进**
+  - 定义了`PerceptionInterface`抽象基类
+  - 当前使用`MockPerception`模拟环境（开发/测试）
+  - 预留`XRPerception`接口（待接入真实XR应用）
+  - 通过工厂函数`create_perception()`轻松切换
+- **简单环境**：一维数组模拟环境，每个位置有1-3个物体（仅用于模拟）
 - **LLM**：使用Gemini 2.0 Flash（最快最便宜）
 - **Embedding**：使用`all-MiniLM-L6-v2`（轻量快速）
-- **同步机制**：使用Lock保护全局环境的读写
+- **同步机制**：使用Lock保护共享资源（消息队列等）
+
+## 接入真实XR应用的步骤
+
+1. **确定XR平台**：Unity、Unreal Engine、WebXR等
+2. **实现XRPerception类**：
+   ```python
+   # 在 utils/perception_interface.py 中
+   class XRPerception(PerceptionInterface):
+       def __init__(self, xr_client):
+           self.xr_client = xr_client  # XR应用的客户端连接
+       
+       def get_visible_objects(self, agent_id, position):
+           # 调用XR应用API获取场景数据
+           scene_data = self.xr_client.get_scene(agent_id)
+           return scene_data.visible_objects
+       
+       def execute_action(self, agent_id, action, params):
+           # 调用XR应用API执行动作
+           result = self.xr_client.execute_action(agent_id, action)
+           return {"position": result.new_position, ...}
+   ```
+3. **在main.py中切换**：
+   ```python
+   # 使用真实XR感知
+   xr_client = YourXRClient(host="localhost", port=8080)
+   perception = create_perception("xr", xr_client=xr_client)
+   ```
+4. **测试和调试**：先用MockPerception验证框架逻辑，再切换到XRPerception
 

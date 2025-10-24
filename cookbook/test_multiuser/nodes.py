@@ -1,5 +1,5 @@
 """
-Multi-Agent探索系统的节点定义
+Node definitions for Multi-Agent exploration system
 """
 from pocketflow import Node
 from utils import (
@@ -7,30 +7,38 @@ from utils import (
     get_embedding,
     search_memory,
     add_to_memory,
-    get_visible_objects,
-    execute_action,
     add_message,
     get_messages_for
 )
+from utils.perception_interface import PerceptionInterface
 import yaml
 import threading
 
-# 全局锁，保护环境访问
+# Global lock to protect shared resources (message queue, etc.)
 env_lock = threading.Lock()
 
 
 class PerceptionNode(Node):
-    """感知节点：获取当前环境状态"""
+    """
+    Perception node: Get current environment state
+    
+    Uses PerceptionInterface abstraction layer, supports switching between different perception implementations
+    """
     
     def prep(self, shared):
-        return shared["agent_id"], shared["global_env"], shared["position"]
+        # Get perception interface from shared store
+        perception = shared["perception"]
+        agent_id = shared["agent_id"]
+        position = shared["position"]
+        
+        return perception, agent_id, position
     
     def exec(self, prep_res):
-        agent_id, env, position = prep_res
+        perception, agent_id, position = prep_res
         
-        # 线程安全地读取环境
-        with env_lock:
-            visible = get_visible_objects(position, env)
+        # Use perception interface to get visible objects
+        # Note: Thread safety is handled by the perception implementation itself
+        visible = perception.get_visible_objects(agent_id, position)
         
         return visible
     
@@ -41,23 +49,23 @@ class PerceptionNode(Node):
 
 
 class RetrieveMemoryNode(Node):
-    """检索记忆节点：从FAISS检索相关历史"""
+    """Memory retrieval node: Retrieve relevant history from FAISS"""
     
     def prep(self, shared):
         visible = shared["visible_objects"]
         position = shared["position"]
         
-        # 构造查询文本
+        # Construct query text
         query = f"What do I know about position {position} with objects {visible}?"
         return query, shared["memory_index"], shared["memory_texts"]
     
     def exec(self, prep_res):
         query, index, memory_texts = prep_res
         
-        # 获取查询向量
+        # Get query vector
         query_emb = get_embedding(query)
         
-        # 检索记忆
+        # Search memory
         results = search_memory(index, query_emb, memory_texts, top_k=3)
         
         return results
@@ -76,7 +84,7 @@ class RetrieveMemoryNode(Node):
 
 
 class CommunicationNode(Node):
-    """通信节点：读取其他agent的消息"""
+    """Communication node: Read messages from other agents"""
     
     def prep(self, shared):
         return shared["agent_id"], shared["global_env"]
@@ -84,7 +92,7 @@ class CommunicationNode(Node):
     def exec(self, prep_res):
         agent_id, env = prep_res
         
-        # 线程安全地读取消息
+        # Thread-safe message reading
         with env_lock:
             messages = get_messages_for(env, agent_id)
         
@@ -102,10 +110,10 @@ class CommunicationNode(Node):
 
 
 class DecisionNode(Node):
-    """决策节点：基于上下文决定下一步动作"""
+    """Decision node: Decide next action based on context"""
     
     def prep(self, shared):
-        # 收集所有决策所需的上下文
+        # Collect all context needed for decision making
         context = {
             "agent_id": shared["agent_id"],
             "position": shared["position"],
@@ -118,58 +126,58 @@ class DecisionNode(Node):
         return context
     
     def exec(self, context):
-        # 构造决策prompt
+        # Construct decision prompt
         memories_text = "\n".join([
             f"- {text[:100]}" 
             for text, _ in context["retrieved_memories"][:3]
-        ]) if context["retrieved_memories"] else "无历史记忆"
+        ]) if context["retrieved_memories"] else "No historical memories"
         
         messages_text = "\n".join([
             f"- {msg['sender']}: {msg['message']}"
             for msg in context["other_agent_messages"]
-        ]) if context["other_agent_messages"] else "无其他agent消息"
+        ]) if context["other_agent_messages"] else "No messages from other agents"
         
-        prompt = f"""你是 {context['agent_id']}，一个在XR环境中探索的智能体。
+        prompt = f"""You are {context['agent_id']}, an intelligent agent exploring an XR environment.
 
-当前状态：
-- 位置：{context['position']}
-- 看到的物体：{context['visible_objects']}
-- 已探索过的物体：{context['explored_objects']}
-- 已探索步数：{context['step_count']}
+Current state:
+- Position: {context['position']}
+- Visible objects: {context['visible_objects']}
+- Already explored objects: {context['explored_objects']}
+- Steps taken: {context['step_count']}
 
-历史记忆（相关的）：
+Historical memories (relevant):
 {memories_text}
 
-其他Agent消息：
+Messages from other agents:
 {messages_text}
 
-任务目标：尽可能探索更多新物体，避免重复探索已见过的区域。
+Task goal: Explore as many new objects as possible, avoid revisiting already explored areas.
 
-可用动作：
-- forward: 前进到下一个位置
-- backward: 后退到上一个位置
+Available actions:
+- forward: Move to next position
+- backward: Move to previous position
 
-请基于上述信息决策下一步动作，输出YAML格式：
+Please decide the next action based on the above information, output in YAML format:
 
 ```yaml
-thinking: 你的思考过程（考虑是否该探索新区域，还是已探索过）
-action: forward 或 backward
-reason: 选择这个动作的原因
-message_to_others: 想要告诉其他agent的信息（可选）
+thinking: Your thought process (consider whether to explore new areas or areas already explored)
+action: forward or backward
+reason: Reason for choosing this action
+message_to_others: Information to share with other agents (optional)
 ```
 """
         
         response = call_llm(prompt)
         
-        # 解析YAML
+        # Parse YAML
         yaml_str = response.split("```yaml")[1].split("```")[0].strip()
         result = yaml.safe_load(yaml_str)
         
-        # 验证必需字段
-        assert isinstance(result, dict), "结果必须是字典"
-        assert "action" in result, "缺少action字段"
-        assert result["action"] in ["forward", "backward"], f"无效的action: {result['action']}"
-        assert "reason" in result, "缺少reason字段"
+        # Validate required fields
+        assert isinstance(result, dict), "Result must be a dictionary"
+        assert "action" in result, "Missing action field"
+        assert result["action"] in ["forward", "backward"], f"Invalid action: {result['action']}"
+        assert "reason" in result, "Missing reason field"
         
         return result
     
@@ -185,38 +193,50 @@ message_to_others: 想要告诉其他agent的信息（可选）
 
 
 class ExecutionNode(Node):
-    """执行节点：执行动作并更新环境"""
+    """
+    Execution node: Execute action and update environment
+    
+    Uses PerceptionInterface to execute actions, supports different environment implementations
+    """
     
     def prep(self, shared):
-        return shared["agent_id"], shared["action"], shared["global_env"]
+        perception = shared["perception"]
+        agent_id = shared["agent_id"]
+        action = shared["action"]
+        
+        return perception, agent_id, action
     
     def exec(self, prep_res):
-        agent_id, action, env = prep_res
+        perception, agent_id, action = prep_res
         
-        # 线程安全地更新环境
-        with env_lock:
-            new_position = execute_action(agent_id, action, env)
+        # Use perception interface to execute action
+        # Returns new state (including position, visible objects, etc.)
+        new_state = perception.execute_action(agent_id, action)
         
-        return new_position
+        return new_state
     
     def post(self, shared, prep_res, exec_res):
-        # 更新位置
-        shared["position"] = exec_res
+        # Update position
+        shared["position"] = exec_res["position"]
         shared["step_count"] += 1
         
-        # 发送消息给其他agent
+        # Update visible objects (new position after execution)
+        if "visible_objects" in exec_res:
+            shared["visible_objects"] = exec_res["visible_objects"]
+        
+        # Send message to other agents
         if shared.get("message_to_others"):
             agent_id = shared["agent_id"]
             message = shared["message_to_others"]
             env = shared["global_env"]
             
             with env_lock:
-                # 发送给所有其他agent
+                # Send to all other agents
                 add_message(env, agent_id, "all", message)
             
             print(f"[{agent_id}] Sent message: {message}")
         
-        # 更新已探索物体集合
+        # Update explored objects set
         visible = shared["visible_objects"]
         shared["explored_objects"].update(visible)
         
@@ -224,10 +244,10 @@ class ExecutionNode(Node):
 
 
 class UpdateMemoryNode(Node):
-    """更新记忆节点：将新探索信息存入FAISS"""
+    """Memory update node: Store new exploration information in FAISS"""
     
     def prep(self, shared):
-        # 构造记忆文本
+        # Construct memory text
         memory_text = (
             f"At position {shared['position']}, "
             f"I saw {shared['visible_objects']}. "
@@ -240,16 +260,16 @@ class UpdateMemoryNode(Node):
     def exec(self, prep_res):
         memory_text, index, memory_texts = prep_res
         
-        # 获取embedding
+        # Get embedding
         embedding = get_embedding(memory_text)
         
-        # 添加到记忆
+        # Add to memory
         add_to_memory(index, embedding, memory_text, memory_texts)
         
         return memory_text
     
     def post(self, shared, prep_res, exec_res):
-        # 记录动作历史
+        # Record action history
         shared["action_history"].append({
             "step": shared["step_count"],
             "position": shared["position"],
@@ -259,7 +279,7 @@ class UpdateMemoryNode(Node):
         
         print(f"[{shared['agent_id']}] Memory updated: {exec_res[:80]}...")
         
-        # 判断是否继续探索
+        # Decide whether to continue exploration
         max_steps = shared["global_env"].get("max_steps", 20)
         
         if shared["step_count"] >= max_steps:
