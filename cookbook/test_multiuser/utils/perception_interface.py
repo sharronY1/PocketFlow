@@ -267,9 +267,19 @@ class UnityPyAutoGUIPerception(PerceptionInterface):
     """
     Perception implementation that interacts with a running Unity game window via pyautogui.
 
-    - Actions:
-      - "forward"  -> press 'w'
-      - "backward" -> press 's'
+    - Actions (built-in mapping):
+      - "forward"    -> 'w'
+      - "backward"   -> 's'
+      - "move_left"  -> 'a'
+      - "move_right" -> 'd'
+      - "move_up"    -> 'r'
+      - "move_down"  -> 'f'
+      - "look_left"  -> 'left'
+      - "look_right" -> 'right'
+      - "look_up"    -> 'up'
+      - "look_down"  -> 'down'
+      - "tilt_left"  -> 'q'
+      - "tilt_right" -> 'e'
     - Perception:
       - Captures a screenshot (full screen or specified region)
       - Returns a placeholder list containing the screenshot path as visible "objects"
@@ -289,7 +299,6 @@ class UnityPyAutoGUIPerception(PerceptionInterface):
             raise RuntimeError("pyautogui is not installed. Please `pip install pyautogui`.")
 
         self.capture_region = capture_region
-        self.keymap = keymap or {"forward": "w", "backward": "s"}
         self.step_sleep_seconds = step_sleep_seconds
         self.agent_steps: Dict[str, int] = {}
 
@@ -320,13 +329,7 @@ class UnityPyAutoGUIPerception(PerceptionInterface):
         }
 
     def execute_action(self, agent_id: str, action: str, params: Optional[Dict] = None) -> Dict[str, Any]:
-        key = self.keymap.get(action)
-        if key:
-            try:
-                pyautogui.keyDown(key)
-                time.sleep(self.step_sleep_seconds)
-            finally:
-                pyautogui.keyUp(key)
+        self._perform_movement_action(action)
 
         # Update logical step counter
         self.agent_steps[agent_id] = self.agent_steps.get(agent_id, 0) + 1
@@ -339,6 +342,31 @@ class UnityPyAutoGUIPerception(PerceptionInterface):
             "velocity": None,
             "visible_objects": [f"screenshot:{path}"],
         }
+
+    def _perform_movement_action(self, action: str) -> None:
+        """Encapsulated movement action handler with internal key mapping (no env vars)."""
+        mapping: Dict[str, str] = {
+            "forward": "w",
+            "backward": "s",
+            "move_left": "a",
+            "move_right": "d",
+            "move_up": "r",
+            "move_down": "f",
+            "look_left": "left",
+            "look_right": "right",
+            "look_up": "up",
+            "look_down": "down",
+            "tilt_left": "q",
+            "tilt_right": "e",
+        }
+        key = mapping.get(action)
+        if not key:
+            return
+        try:
+            pyautogui.keyDown(key)
+            time.sleep(self.step_sleep_seconds)
+        finally:
+            pyautogui.keyUp(key)
 
     def get_environment_info(self) -> Dict[str, Any]:
         return {

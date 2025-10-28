@@ -131,7 +131,6 @@ def main(perception_type: str = "mock"):
             "unity",
             screenshot_dir=screenshot_dir,
             capture_region=capture_region,
-            keymap={"forward": os.getenv("KEY_FORWARD", "w"), "backward": os.getenv("KEY_BACKWARD", "s")},
             step_sleep_seconds=float(os.getenv("STEP_SLEEP", "0.3")),
         )
         print("[System] Using UnityPyAutoGUIPerception (pyautogui). Make sure the Unity window is focused.")

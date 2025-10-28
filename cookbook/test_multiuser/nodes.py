@@ -174,12 +174,22 @@ Task goal: Explore as many new objects as possible, avoid revisiting already exp
 Available actions:
 - forward: Move to next position
 - backward: Move to previous position
+- move_left: Strafe left (key 'a')
+- move_right: Strafe right (key 'd')
+- move_up: Move up (key 'r')
+- move_down: Move down (key 'f')
+- look_left: Turn head left (left arrow)
+- look_right: Turn head right (right arrow)
+- look_up: Look up (up arrow)
+- look_down: Look down (down arrow)
+- tilt_left: Roll head left (key 'q')
+- tilt_right: Roll head right (key 'e')
 
 Please decide the next action based on the above information, output in YAML format:
 
 ```yaml
 thinking: Your thought process (consider whether to explore new areas or areas already explored)
-action: forward or backward
+action: one of [forward, backward, move_left, move_right, move_up, move_down, look_left, look_right, look_up, look_down, tilt_left, tilt_right]
 reason: Reason for choosing this action
 message_to_others: Information to share with other agents (optional)
 ```
@@ -194,7 +204,12 @@ message_to_others: Information to share with other agents (optional)
         # Validate required fields
         assert isinstance(result, dict), "Result must be a dictionary"
         assert "action" in result, "Missing action field"
-        assert result["action"] in ["forward", "backward"], f"Invalid action: {result['action']}"
+        assert result["action"] in [
+            "forward", "backward",
+            "move_left", "move_right", "move_up", "move_down",
+            "look_left", "look_right", "look_up", "look_down",
+            "tilt_left", "tilt_right",
+        ], f"Invalid action: {result['action']}"
         assert "reason" in result, "Missing reason field"
         
         return result
