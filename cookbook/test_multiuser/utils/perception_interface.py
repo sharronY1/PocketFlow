@@ -368,10 +368,16 @@ class RemotePerception(PerceptionInterface):
     Remote perception implementation that calls a centralized environment service over HTTP.
     """
 
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, messaging_only: bool = False):
         self.base_url = base_url.rstrip('/')
+        # If messaging_only=True, environment endpoints are not used.
+        # The perception will only send/poll messages and keep a local static position.
+        self.messaging_only = messaging_only or bool(os.getenv("MESSAGING_ONLY"))
+        self._agent_positions: Dict[str, int] = {}
 
     def get_visible_objects(self, agent_id: str, position: Any) -> List[str]:
+        if self.messaging_only:
+            return []
         resp = requests.post(f"{self.base_url}/env/visible", json={"agent_id": agent_id, "position": position}, timeout=10)
         resp.raise_for_status()
         data = resp.json()
@@ -379,16 +385,26 @@ class RemotePerception(PerceptionInterface):
 
     def get_agent_state(self, agent_id: str) -> Dict[str, Any]:
         # In remote mode, position is managed by the server after actions. If needed, env info can include positions.
+        if self.messaging_only:
+            pos = self._agent_positions.get(agent_id, 0)
+            return {"position": pos}
         info = self.get_environment_info()
         position = (info.get("agent_positions") or {}).get(agent_id, 0)
         return {"position": position}
 
     def execute_action(self, agent_id: str, action: str, params: Optional[Dict] = None) -> Dict[str, Any]:
+        if self.messaging_only:
+            pos = self._agent_positions.get(agent_id, 0)
+            # keep position unchanged; do not explore
+            self._agent_positions[agent_id] = pos
+            return {"position": pos, "visible_objects": []}
         resp = requests.post(f"{self.base_url}/env/execute", json={"agent_id": agent_id, "action": action}, timeout=10)
         resp.raise_for_status()
         return resp.json()
 
     def get_environment_info(self) -> Dict[str, Any]:
+        if self.messaging_only:
+            return {"type": "remote-msg-only"}
         resp = requests.get(f"{self.base_url}/env/info", timeout=10)
         resp.raise_for_status()
         return resp.json()
@@ -442,7 +458,8 @@ def create_perception(perception_type: str = "mock", **kwargs) -> PerceptionInte
         base_url = kwargs.get("base_url") or os.getenv("ENV_SERVER_URL")
         if not base_url:
             raise ValueError("Remote perception requires 'base_url' or ENV_SERVER_URL")
-        return RemotePerception(base_url=base_url)
+        messaging_only = bool(kwargs.get("messaging_only") or os.getenv("MESSAGING_ONLY"))
+        return RemotePerception(base_url=base_url, messaging_only=messaging_only)
     else:
         raise ValueError(f"Unknown perception type: {perception_type}")
 
