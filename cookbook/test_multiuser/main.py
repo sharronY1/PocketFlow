@@ -86,10 +86,14 @@ def main(perception_type: str = "mock"):
     print("Multi-Agent XR Environment Exploration System")
     print("="*60)
     
-    # Create global environment (still used for positions/messages even in unity mode)
+    # Create global environment only for local/mock/unity modes
     print("\n[System] Creating environment...")
-    global_env = create_environment(num_positions=10)
-    global_env["max_steps"] = int(os.getenv("MAX_STEPS", "3"))
+    if perception_type in ("mock", "unity"):
+        global_env = create_environment(num_positions=10)
+        global_env["max_steps"] = int(os.getenv("MAX_STEPS", "3"))
+    else:
+        # For remote mode, keep a lightweight dict for non-shared fields
+        global_env = {"max_steps": int(os.getenv("MAX_STEPS", "3")), "agent_positions": {}}
     
     # Only print mock layout when using mock
     if perception_type == "mock":
@@ -131,6 +135,12 @@ def main(perception_type: str = "mock"):
             step_sleep_seconds=float(os.getenv("STEP_SLEEP", "0.3")),
         )
         print("[System] Using UnityPyAutoGUIPerception (pyautogui). Make sure the Unity window is focused.")
+    elif perception_type == "remote":
+        base_url = os.getenv("ENV_SERVER_URL")
+        if not base_url:
+            raise ValueError("ENV_SERVER_URL is required for remote perception")
+        perception = create_perception("remote", base_url=base_url)
+        print(f"[System] Using RemotePerception at {base_url}")
     else:
         raise ValueError(f"Unknown perception type: {perception_type}")
     
@@ -168,9 +178,23 @@ def main(perception_type: str = "mock"):
     print("FINAL SYSTEM SUMMARY")
     print("="*60)
     print(f"Total execution time: {elapsed_time:.2f} seconds")
-    print(f"Total unique objects explored by all agents: {len(global_env['explored_by_all'])}")
-    print(f"Objects: {global_env['explored_by_all']}")
-    print(f"Coverage: {len(global_env['explored_by_all'])} / {sum(len(objs) for objs in global_env['objects'].values())} objects")
+    # Support both local and remote modes
+    explored = None
+    total_objects = None
+    if "explored_by_all" in global_env and "objects" in global_env:
+        explored = global_env["explored_by_all"]
+        total_objects = sum(len(objs) for objs in global_env["objects"].values())
+    else:
+        try:
+            info = perception.get_environment_info()
+            explored = set(info.get("explored_by_all", []))
+            total_objects = int(info.get("total_objects", 0))
+        except Exception:
+            explored = set()
+            total_objects = 0
+    print(f"Total unique objects explored by all agents: {len(explored)}")
+    print(f"Objects: {explored}")
+    print(f"Coverage: {len(explored)} / {total_objects} objects")
     print(f"Final agent positions:")
     for agent_id, pos in global_env["agent_positions"].items():
         print(f"  {agent_id}: position {pos}")

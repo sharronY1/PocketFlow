@@ -8,6 +8,7 @@ between different perception implementations:
 """
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
+import requests
 import os
 import time
 from pathlib import Path
@@ -77,6 +78,13 @@ class PerceptionInterface(ABC):
             Environment metadata (size, boundaries, total objects, etc.)
         """
         pass
+
+    # Optional messaging hooks for remote/shared environments
+    def send_message(self, sender: str, recipient: str, message: str) -> None:
+        raise NotImplementedError
+
+    def poll_messages(self, agent_id: str) -> List[Dict[str, Any]]:
+        raise NotImplementedError
 
 
 class MockPerception(PerceptionInterface):
@@ -275,6 +283,7 @@ class UnityPyAutoGUIPerception(PerceptionInterface):
         capture_region: Optional[tuple] = None,  # (left, top, width, height)
         keymap: Optional[Dict[str, str]] = None,
         step_sleep_seconds: float = 0.3,
+        messaging_base_url: Optional[str] = None,
     ):
         if pyautogui is None:
             raise RuntimeError("pyautogui is not installed. Please `pip install pyautogui`.")
@@ -287,6 +296,8 @@ class UnityPyAutoGUIPerception(PerceptionInterface):
         base_dir = Path(screenshot_dir) if screenshot_dir else Path.cwd() / "screenshots"
         base_dir.mkdir(parents=True, exist_ok=True)
         self.screenshot_dir = base_dir
+        # Optional centralized messaging server (FastAPI env_server)
+        self.messaging_base_url = (messaging_base_url or os.getenv("ENV_SERVER_URL") or "").rstrip("/")
 
     def _capture(self, agent_id: str) -> str:
         ts = time.strftime("%Y%m%d-%H%M%S")
@@ -336,6 +347,62 @@ class UnityPyAutoGUIPerception(PerceptionInterface):
             "capture_region": self.capture_region,
         }
 
+    # Messaging via centralized server when configured
+    def send_message(self, sender: str, recipient: str, message: str) -> None:
+        if not self.messaging_base_url:
+            raise NotImplementedError("Messaging server not configured. Set ENV_SERVER_URL or pass messaging_base_url.")
+        resp = requests.post(f"{self.messaging_base_url}/messages/send", json={"sender": sender, "recipient": recipient, "message": message}, timeout=10)
+        resp.raise_for_status()
+
+    def poll_messages(self, agent_id: str) -> List[Dict[str, Any]]:
+        if not self.messaging_base_url:
+            raise NotImplementedError("Messaging server not configured. Set ENV_SERVER_URL or pass messaging_base_url.")
+        resp = requests.post(f"{self.messaging_base_url}/messages/poll", json={"agent_id": agent_id}, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("messages", [])
+
+
+class RemotePerception(PerceptionInterface):
+    """
+    Remote perception implementation that calls a centralized environment service over HTTP.
+    """
+
+    def __init__(self, base_url: str):
+        self.base_url = base_url.rstrip('/')
+
+    def get_visible_objects(self, agent_id: str, position: Any) -> List[str]:
+        resp = requests.post(f"{self.base_url}/env/visible", json={"agent_id": agent_id, "position": position}, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("visible_objects", [])
+
+    def get_agent_state(self, agent_id: str) -> Dict[str, Any]:
+        # In remote mode, position is managed by the server after actions. If needed, env info can include positions.
+        info = self.get_environment_info()
+        position = (info.get("agent_positions") or {}).get(agent_id, 0)
+        return {"position": position}
+
+    def execute_action(self, agent_id: str, action: str, params: Optional[Dict] = None) -> Dict[str, Any]:
+        resp = requests.post(f"{self.base_url}/env/execute", json={"agent_id": agent_id, "action": action}, timeout=10)
+        resp.raise_for_status()
+        return resp.json()
+
+    def get_environment_info(self) -> Dict[str, Any]:
+        resp = requests.get(f"{self.base_url}/env/info", timeout=10)
+        resp.raise_for_status()
+        return resp.json()
+
+    def send_message(self, sender: str, recipient: str, message: str) -> None:
+        resp = requests.post(f"{self.base_url}/messages/send", json={"sender": sender, "recipient": recipient, "message": message}, timeout=10)
+        resp.raise_for_status()
+
+    def poll_messages(self, agent_id: str) -> List[Dict[str, Any]]:
+        resp = requests.post(f"{self.base_url}/messages/poll", json={"agent_id": agent_id}, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("messages", [])
+
 
 # Factory function: convenient for creating different perception implementations
 def create_perception(perception_type: str = "mock", **kwargs) -> PerceptionInterface:
@@ -369,7 +436,13 @@ def create_perception(perception_type: str = "mock", **kwargs) -> PerceptionInte
             capture_region=kwargs.get("capture_region"),
             keymap=kwargs.get("keymap"),
             step_sleep_seconds=kwargs.get("step_sleep_seconds", 0.3),
+            messaging_base_url=kwargs.get("messaging_base_url") or os.getenv("ENV_SERVER_URL"),
         )
+    elif perception_type == "remote":
+        base_url = kwargs.get("base_url") or os.getenv("ENV_SERVER_URL")
+        if not base_url:
+            raise ValueError("Remote perception requires 'base_url' or ENV_SERVER_URL")
+        return RemotePerception(base_url=base_url)
     else:
         raise ValueError(f"Unknown perception type: {perception_type}")
 

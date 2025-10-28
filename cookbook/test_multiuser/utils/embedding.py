@@ -1,7 +1,7 @@
 """
-文本Embedding工具 - 使用sentence-transformers
+文本Embedding工具 - 使用sentence-transformers（可通过环境变量禁用以便本地验证）
 """
-from sentence_transformers import SentenceTransformer
+import os
 import numpy as np
 
 # 全局模型实例（避免重复加载）
@@ -12,8 +12,23 @@ def get_embedding_model():
     """获取或初始化embedding模型"""
     global _model
     if _model is None:
-        # 使用轻量级模型：all-MiniLM-L6-v2 (80MB, 快速)
-        _model = SentenceTransformer('all-MiniLM-L6-v2')
+        if os.getenv("DISABLE_EMBEDDING"):
+            class _FakeModel:
+                def encode(self, texts, convert_to_numpy=True):
+                    def encode_one(t: str):
+                        rng = np.random.default_rng(abs(hash(t)) % (2**32))
+                        vec = rng.standard_normal(384).astype(np.float32)
+                        # normalize
+                        vec /= (np.linalg.norm(vec) + 1e-12)
+                        return vec
+                    if isinstance(texts, (list, tuple)):
+                        return np.stack([encode_one(t) for t in texts], axis=0)
+                    return encode_one(texts)
+            _model = _FakeModel()
+        else:
+            from sentence_transformers import SentenceTransformer  # lazy import
+            # 使用轻量级模型：all-MiniLM-L6-v2 (80MB, 快速)
+            _model = SentenceTransformer('all-MiniLM-L6-v2')
     return _model
 
 

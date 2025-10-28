@@ -56,6 +56,30 @@ export GEMINI_API_KEY="your-api-key-here"
 python main.py
 ```
 
+## 分布式（Remote）模式：多机运行 Agents
+
+现在支持通过一个中心化环境服务让不同机器上的 Agents 共享同一环境与消息。
+
+### 1) 启动环境服务（任意一台机器）
+
+```bash
+pip install fastapi uvicorn pydantic
+python env_server.py  # 默认 0.0.0.0:8000
+```
+
+### 2) 在不同机器上启动 Agents
+
+每台 Agent 机器设置服务地址并以 remote 模式运行：
+
+```bash
+export ENV_SERVER_URL="http://<server_host>:8000"
+python -c "import main; main.main('remote')"
+```
+
+说明：
+- 多台机器上的 Agents 共享集中化的世界状态（位置、全局探索集合、消息队列）。
+- 消息与动作更新通过环境服务完成，Agent 本地的记忆索引仍然是各自独立的。
+
 ## 系统架构
 
 ### Agent决策循环

@@ -7,13 +7,12 @@ from utils import (
     get_embedding,
     search_memory,
     add_to_memory,
-    add_message,
-    get_messages_for
 )
 from utils.vision import caption_image
 from utils.perception_interface import PerceptionInterface
 import yaml
 import threading
+import os
 
 # Global lock to protect shared resources (message queue, etc.)
 env_lock = threading.Lock()
@@ -96,15 +95,15 @@ class CommunicationNode(Node):
     """Communication node: Read messages from other agents"""
     
     def prep(self, shared):
-        return shared["agent_id"], shared["global_env"]
+        return shared["agent_id"], shared["perception"]
     
     def exec(self, prep_res):
-        agent_id, env = prep_res
-        
-        # Thread-safe message reading
-        with env_lock:
-            messages = get_messages_for(env, agent_id)
-        
+        agent_id, perception = prep_res
+        try:
+            messages = perception.poll_messages(agent_id)
+        except Exception as e:
+            print(f"[CommunicationNode] Error polling messages: {e}")
+            messages = []
         return messages
     
     def post(self, shared, prep_res, exec_res):
@@ -135,6 +134,16 @@ class DecisionNode(Node):
         return context
     
     def exec(self, context):
+        # Optional offline mode: skip LLM when DISABLE_LLM is set
+        if os.getenv("DISABLE_LLM"):
+            action = "forward" if (context.get("step_count", 0) % 2 == 0) else "backward"
+            return {
+                "thinking": "LLM disabled for local validation.",
+                "action": action,
+                "reason": "Deterministic fallback decision without LLM.",
+                "message_to_others": "Testing remote mode without LLM"
+            }
+
         # Construct decision prompt
         memories_text = "\n".join([
             f"- {text[:100]}" 
@@ -237,13 +246,12 @@ class ExecutionNode(Node):
         if shared.get("message_to_others"):
             agent_id = shared["agent_id"]
             message = shared["message_to_others"]
-            env = shared["global_env"]
-            
-            with env_lock:
-                # Send to all other agents
-                add_message(env, agent_id, "all", message)
-            
-            print(f"[{agent_id}] Sent message: {message}")
+            perception = shared["perception"]
+            try:
+                perception.send_message(agent_id, "all", message)
+                print(f"[{agent_id}] Sent message: {message}")
+            except Exception as e:
+                print(f"[{agent_id}] Failed to send message: {e}")
         
         # Update explored objects set
         visible = shared["visible_objects"]
