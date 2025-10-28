@@ -169,7 +169,7 @@ Historical memories (relevant):
 Messages from other agents:
 {messages_text}
 
-Task goal: Explore as many new objects as possible, avoid revisiting already explored areas.
+Task goal: Explore as many new objects as possible, avoid revisiting already explored areas. Analize the screen shot and decide the next action.
 
 Available actions:
 - forward: Move to next position
