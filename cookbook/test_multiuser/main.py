@@ -1,12 +1,12 @@
 """
 Multi-Agent XR Environment Exploration System - Main Program
 """
-import threading
 import os
 from utils import create_environment, create_memory
 from utils.perception_interface import create_perception, PerceptionInterface
 from flow import create_agent_flow
 import time
+import argparse
 
 
 def run_agent(agent_id: str, global_env: dict, perception: PerceptionInterface, max_steps: int = 20):
@@ -75,12 +75,13 @@ def run_agent(agent_id: str, global_env: dict, perception: PerceptionInterface, 
     print(f"{'='*60}\n")
 
 
-def main(perception_type: str = "mock"):
+def main(perception_type: str = "mock", agent_id: str = "Agent"):
     """
-    Main program entry point
+    Main program entry point (single agent)
     
     Args:
-        perception_type: Perception type ("mock" or "xr")
+        perception_type: Perception type ("mock", "unity", or "remote")
+        agent_id: Unique agent identifier
     """
     print("\n" + "="*60)
     print("Multi-Agent XR Environment Exploration System")
@@ -146,30 +147,9 @@ def main(perception_type: str = "mock"):
     env_info = perception.get_environment_info()
     print(f"[System] Environment info: {env_info}")
     
-    # Create two agent threads
-    print("\n[System] Starting 2 agents...")
-    
-    agent1_thread = threading.Thread(
-        target=run_agent,
-        args=("Agent1", global_env, perception, 15),
-        name="Agent1Thread"
-    )
-    
-    agent2_thread = threading.Thread(
-        target=run_agent,
-        args=("Agent2", global_env, perception, 15),
-        name="Agent2Thread"
-    )
-    
-    # Start threads
+    print("\n[System] Starting agent...")
     start_time = time.time()
-    agent1_thread.start()
-    agent2_thread.start()
-    
-    # Wait for both agents to complete
-    agent1_thread.join()
-    agent2_thread.join()
-    
+    run_agent(agent_id, global_env, perception, 15)
     elapsed_time = time.time() - start_time
     
     # Print overall summary
@@ -195,13 +175,17 @@ def main(perception_type: str = "mock"):
     print(f"Objects: {explored}")
     print(f"Coverage: {len(explored)} / {total_objects} objects")
     print(f"Final agent positions:")
-    for agent_id, pos in global_env["agent_positions"].items():
-        print(f"  {agent_id}: position {pos}")
+    for aid, pos in global_env["agent_positions"].items():
+        print(f"  {aid}: position {pos}")
     print("="*60)
     
     print("\n[System] Exploration completed!")
 
 
 if __name__ == "__main__":
-    main("unity")
+    parser = argparse.ArgumentParser(description="Run a single exploration agent")
+    parser.add_argument("--perception", default=os.getenv("PERCEPTION", "unity"), choices=["mock", "unity", "remote"], help="Perception type")
+    parser.add_argument("--agent-id", default=os.getenv("AGENT_ID", "Agent"), help="Unique agent id")
+    args = parser.parse_args()
+    main(args.perception, args.agent_id)
 

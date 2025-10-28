@@ -50,11 +50,24 @@ $env:GEMINI_API_KEY="your-api-key-here"
 export GEMINI_API_KEY="your-api-key-here"
 ```
 
-## 运行
+## 运行（单 Agent 简化）
 
+- 启动集中环境服务（一次即可）
 ```bash
-python main.py
+uvicorn env_server:app --host 0.0.0.0 --port 8000
 ```
+
+- 在每台机器各自启动一个 Agent：
+```bash
+# 远程消息/环境（remote）。如需仅聊天：设置 MESSAGING_ONLY=1
+ENV_SERVER_URL=http://<server_ip>:8000 python main.py --perception remote --agent-id Laptop
+
+# Unity 控制（pyautogui），需保证 Unity 窗口已聚焦
+ENV_SERVER_URL=http://<server_ip>:8000 python main.py --perception unity --agent-id Lab \
+  --screenshot_dir "$SCREENSHOT_DIR"  # 可选，使用环境变量见 main.py 注释
+```
+
+注意：`main.py` 现在默认只启动一个 agent（通过 `--agent-id` 指定）。
 
 ## 分布式（Remote）模式：多机运行 Agents
 

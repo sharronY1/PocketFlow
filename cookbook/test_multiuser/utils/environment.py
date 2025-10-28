@@ -115,7 +115,8 @@ def get_messages_for(env: Dict[str, Any], agent_id: str) -> List[Dict[str, str]]
     remaining = []
     
     for msg in env["message_queue"]:
-        if msg["recipient"] == agent_id or msg["recipient"] == "all":
+        # Deliver only messages not sent by the same agent
+        if (msg["recipient"] == agent_id or msg["recipient"] == "all") and msg.get("sender") != agent_id:
             messages.append(msg)
         else:
             remaining.append(msg)
