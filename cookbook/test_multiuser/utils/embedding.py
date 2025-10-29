@@ -1,15 +1,15 @@
 """
-文本Embedding工具 - 使用sentence-transformers（可通过环境变量禁用以便本地验证）
+Text Embedding utilities - Uses sentence-transformers (can be disabled via env var for local verification)
 """
 import os
 import numpy as np
 
-# 全局模型实例（避免重复加载）
+# Global model instance (avoid repeated loading)
 _model = None
 
 
 def get_embedding_model():
-    """获取或初始化embedding模型"""
+    """Get or initialize embedding model"""
     global _model
     if _model is None:
         if os.getenv("DISABLE_EMBEDDING"):
@@ -27,20 +27,20 @@ def get_embedding_model():
             _model = _FakeModel()
         else:
             from sentence_transformers import SentenceTransformer  # lazy import
-            # 使用轻量级模型：all-MiniLM-L6-v2 (80MB, 快速)
+            # Use lightweight model: all-MiniLM-L6-v2 (80MB, fast)
             _model = SentenceTransformer('all-MiniLM-L6-v2')
     return _model
 
 
 def get_embedding(text: str) -> np.ndarray:
     """
-    获取文本的embedding向量
+    Get embedding vector for text
     
     Args:
-        text: 输入文本
+        text: Input text
     
     Returns:
-        embedding向量 (384维)
+        Embedding vector (384 dimensions)
     """
     model = get_embedding_model()
     embedding = model.encode(text, convert_to_numpy=True)
@@ -49,13 +49,13 @@ def get_embedding(text: str) -> np.ndarray:
 
 def get_embeddings_batch(texts: list) -> np.ndarray:
     """
-    批量获取文本embeddings
+    Get embeddings for multiple texts in batch
     
     Args:
-        texts: 文本列表
+        texts: List of texts
     
     Returns:
-        embeddings矩阵，shape (len(texts), 384)
+        Embeddings matrix, shape (len(texts), 384)
     """
     model = get_embedding_model()
     embeddings = model.encode(texts, convert_to_numpy=True)
@@ -63,7 +63,7 @@ def get_embeddings_batch(texts: list) -> np.ndarray:
 
 
 if __name__ == "__main__":
-    # 测试embedding
+    # Test embedding
     print("Testing embedding...")
     
     test_texts = [
@@ -72,23 +72,23 @@ if __name__ == "__main__":
         "What objects are near position 0?"
     ]
     
-    # 单个文本
+    # Single text
     emb = get_embedding(test_texts[0])
     print(f"Single embedding shape: {emb.shape}")
     print(f"First 10 values: {emb[:10]}")
     
-    # 批量文本
+    # Batch texts
     embs = get_embeddings_batch(test_texts)
     print(f"\nBatch embeddings shape: {embs.shape}")
     
-    # 计算相似度
+    # Calculate similarity
     from numpy.linalg import norm
     
-    # 文本0和文本1的相似度
+    # Similarity between text 0 and text 1
     sim_01 = np.dot(embs[0], embs[1]) / (norm(embs[0]) * norm(embs[1]))
     print(f"Similarity between text 0 and 1: {sim_01:.4f}")
     
-    # 文本0和查询的相似度
+    # Similarity between text 0 and query
     sim_02 = np.dot(embs[0], embs[2]) / (norm(embs[0]) * norm(embs[2]))
     print(f"Similarity between text 0 and query: {sim_02:.4f}")
 

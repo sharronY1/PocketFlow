@@ -1,5 +1,5 @@
 """
-Multi-Agent探索系统的Flow定义
+Flow definition for Multi-Agent exploration system
 """
 from pocketflow import Flow
 from nodes import (
@@ -14,38 +14,38 @@ from nodes import (
 
 def create_agent_flow():
     """
-    创建单个Agent的探索Flow
+    Create exploration flow for a single Agent
     
-    Flow结构：
+    Flow structure:
     Perception -> RetrieveMemory -> Communication -> Decision -> Execution -> UpdateMemory
                                                                                  |
                                                                                  v
-                                                              "continue" -> (循环回Perception)
-                                                              "end" -> (结束)
+                                                              "continue" -> (loop back to Perception)
+                                                              "end" -> (finish)
     """
-    # 创建节点
+    # Create nodes
     perception = PerceptionNode()
     retrieve = RetrieveMemoryNode()
     communicate = CommunicationNode()
-    decide = DecisionNode(max_retries=3)  # 决策节点允许重试
+    decide = DecisionNode(max_retries=3)  # Decision node allows retries
     execute = ExecutionNode()
     update = UpdateMemoryNode()
     
-    # 连接节点
+    # Connect nodes
     perception >> retrieve >> communicate >> decide >> execute >> update
     
-    # 更新记忆后的分支
-    update - "continue" >> perception  # 继续探索，回到感知节点
-    update - "end"      # 结束（没有后续节点）
+    # Branch after memory update
+    update - "continue" >> perception  # Continue exploration, loop back to perception
+    update - "end"      # End (no subsequent nodes)
     
-    # 创建Flow
+    # Create Flow
     flow = Flow(start=perception)
     
     return flow
 
 
 if __name__ == "__main__":
-    # 测试Flow创建
+    # Test Flow creation
     print("Creating agent flow...")
     flow = create_agent_flow()
     print("Flow created successfully!")

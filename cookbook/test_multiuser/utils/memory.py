@@ -1,5 +1,5 @@
 """
-FAISS记忆管理工具
+FAISS memory management utilities
 """
 import faiss
 import numpy as np
@@ -8,85 +8,85 @@ from typing import List, Tuple
 
 def create_memory(dimension: int = 384):
     """
-    创建FAISS索引
+    Create FAISS index
     
     Args:
-        dimension: 向量维度（默认384，匹配all-MiniLM-L6-v2）
+        dimension: Vector dimension (default 384, matches all-MiniLM-L6-v2)
     
     Returns:
-        FAISS索引对象
+        FAISS index object
     """
-    # 使用L2距离的简单索引
+    # Use simple index with L2 distance
     index = faiss.IndexFlatL2(dimension)
     return index
 
 
 def add_to_memory(index: faiss.Index, embedding: np.ndarray, text: str, memory_texts: List[str]):
     """
-    添加记忆到FAISS索引
+    Add memory to FAISS index
     
     Args:
-        index: FAISS索引
-        embedding: 向量 (1D array)
-        text: 对应的文本
-        memory_texts: 文本列表（会被修改，添加新文本）
+        index: FAISS index
+        embedding: Vector (1D array)
+        text: Corresponding text
+        memory_texts: Text list (will be modified, new text added)
     """
-    # FAISS需要2D数组
+    # FAISS requires 2D array
     if embedding.ndim == 1:
         embedding = embedding.reshape(1, -1)
     
-    # 添加到索引
+    # Add to index
     index.add(embedding.astype('float32'))
     
-    # 添加到文本列表
+    # Add to text list
     memory_texts.append(text)
 
 
 def search_memory(index: faiss.Index, query_embedding: np.ndarray, memory_texts: List[str], top_k: int = 3) -> List[Tuple[str, float]]:
     """
-    从FAISS检索相关记忆
+    Retrieve relevant memories from FAISS
     
     Args:
-        index: FAISS索引
-        query_embedding: 查询向量
-        memory_texts: 文本列表
-        top_k: 返回top-k结果
+        index: FAISS index
+        query_embedding: Query vector
+        memory_texts: Text list
+        top_k: Return top-k results
     
     Returns:
-        [(text, distance), ...] 按距离排序
+        [(text, distance), ...] sorted by distance
     """
-    # 如果索引为空，返回空列表
+    # If index is empty, return empty list
     if index.ntotal == 0:
         return []
     
-    # FAISS需要2D数组
+    # FAISS requires 2D array
     if query_embedding.ndim == 1:
         query_embedding = query_embedding.reshape(1, -1)
     
-    # 搜索
-    k = min(top_k, index.ntotal)  # 不能超过索引中的总数
+    # Search
+    k = min(top_k, index.ntotal)  # Cannot exceed total number in index
     distances, indices = index.search(query_embedding.astype('float32'), k)
     
-    # 构造结果
+    # Construct results
     results = []
     for dist, idx in zip(distances[0], indices[0]):
-        if idx < len(memory_texts):  # 确保索引有效
+        if idx < len(memory_texts):  # Ensure valid index
             results.append((memory_texts[idx], float(dist)))
     
     return results
 
 
 if __name__ == "__main__":
-    # 测试记忆系统
+    # Test memory system
     print("Testing FAISS memory system...")
     
     from embedding import get_embedding, get_embeddings_batch
     
-    # 创建索引
+    # Create index
     index = create_memory(dimension=384)
     memory_texts = []
     
-    # 添加一些记忆
+    # Add some memories
     memories = [
         "At position 0, I saw chair and table. Decided to go forward.",
         "At position 1, I saw lamp and book. Decided to go forward.",
@@ -101,7 +101,7 @@ if __name__ == "__main__":
     
     print(f"Total memories: {index.ntotal}")
     
-    # 搜索测试
+    # Search test
     queries = [
         "What objects are at position 0?",
         "Where did I see a lamp?",

@@ -166,10 +166,15 @@ Current state:
 Historical memories (relevant):
 {memories_text}
 
-Messages from other agents:
+**Messages from other agents (IMPORTANT - consider these in your decision):**
 {messages_text}
 
 Task goal: Explore as many new objects as possible, avoid revisiting already explored areas. Analize the screen shot and decide the next action.
+
+Decision strategy:
+- If other agents reported finding new objects at nearby positions, consider moving there
+- If other agents already explored certain areas, avoid those to prevent duplication
+- Share important discoveries with other agents
 
 Available actions:
 - forward: Move to next position
@@ -188,9 +193,9 @@ Available actions:
 Please decide the next action based on the above information, output in YAML format:
 
 ```yaml
-thinking: Your thought process (consider whether to explore new areas or areas already explored)
+thinking: Your thought process (MUST consider messages from other agents if any, and whether to explore new areas)
 action: one of [forward, backward, move_left, move_right, move_up, move_down, look_left, look_right, look_up, look_down, tilt_left, tilt_right]
-reason: Reason for choosing this action
+reason: Reason for choosing this action (mention other agents' messages if they influenced your decision)
 message_to_others: Information to share with other agents (optional)
 ```
 """
@@ -279,13 +284,22 @@ class UpdateMemoryNode(Node):
     """Memory update node: Store new exploration information in FAISS"""
     
     def prep(self, shared):
-        # Construct memory text
+        # Construct memory text with own experience
         memory_text = (
             f"At position {shared['position']}, "
             f"I saw {shared['visible_objects']}. "
             f"I decided to {shared['action']}. "
             f"Reason: {shared['action_reason']}"
         )
+        
+        # Add messages from other agents (if any)
+        if shared.get("other_agent_messages"):
+            messages_parts = []
+            for msg in shared["other_agent_messages"]:
+                messages_parts.append(f"{msg['sender']}: {msg['message']}")
+            
+            messages_summary = "; ".join(messages_parts)
+            memory_text += f" | Context from others: {messages_summary}"
         
         return memory_text, shared["memory_index"], shared["memory_texts"]
     
@@ -301,15 +315,16 @@ class UpdateMemoryNode(Node):
         return memory_text
     
     def post(self, shared, prep_res, exec_res):
-        # Record action history
+        # Record action history with messages received
         shared["action_history"].append({
             "step": shared["step_count"],
             "position": shared["position"],
             "action": shared["action"],
-            "visible": shared["visible_objects"]
+            "visible": shared["visible_objects"],
+            "messages_received": shared.get("other_agent_messages", [])  # Record received messages
         })
         
-        print(f"[{shared['agent_id']}] Memory updated: {exec_res[:80]}...")
+        print(f"[{shared['agent_id']}] Memory updated: {exec_res[:100]}...")
         
         # Decide whether to continue exploration
         max_steps = shared["global_env"].get("max_steps", 20)

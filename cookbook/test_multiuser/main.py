@@ -72,6 +72,13 @@ def run_agent(agent_id: str, global_env: dict, perception: PerceptionInterface, 
     print(f"Unique objects explored: {len(agent_shared['explored_objects'])}")
     print(f"Objects: {agent_shared['explored_objects']}")
     print(f"Memories stored: {len(agent_shared['memory_texts'])}")
+    
+    # Show sample memories (first 3)
+    if agent_shared['memory_texts']:
+        print(f"\nSample memories:")
+        for i, mem in enumerate(agent_shared['memory_texts'][:3], 1):
+            print(f"  {i}. {mem[:120]}...")
+    
     print(f"{'='*60}\n")
 
 
@@ -177,6 +184,15 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
     print(f"Final agent positions:")
     for aid, pos in global_env["agent_positions"].items():
         print(f"  {aid}: position {pos}")
+    
+    # Print message history
+    if "message_history" in global_env and global_env["message_history"]:
+        print(f"\nMessage history ({len(global_env['message_history'])} messages):")
+        for i, msg in enumerate(global_env["message_history"][:10], 1):  # Show first 10
+            print(f"  {i}. {msg['sender']} → {msg['recipient']}: {msg['message'][:80]}")
+        if len(global_env["message_history"]) > 10:
+            print(f"  ... and {len(global_env['message_history']) - 10} more messages")
+    
     print("="*60)
     
     print("\n[System] Exploration completed!")

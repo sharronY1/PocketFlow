@@ -49,7 +49,7 @@ def test_memory():
     index = create_memory(dimension=384)
     memory_texts = []
     
-    # 添加记忆
+    # Add memories
     texts = ["I saw a chair", "I saw a table", "I saw a lamp"]
     for text in texts:
         emb = get_embedding(text)
@@ -57,7 +57,7 @@ def test_memory():
     
     print(f"✓ Added {index.ntotal} memories")
     
-    # 搜索
+    # Search
     query = "furniture"
     query_emb = get_embedding(query)
     results = search_memory(index, query_emb, memory_texts, top_k=2)

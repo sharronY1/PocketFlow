@@ -1,5 +1,5 @@
 """
-环境模拟工具
+Environment simulation utilities
 """
 import random
 from typing import List, Dict, Any
@@ -7,14 +7,14 @@ from typing import List, Dict, Any
 
 def create_environment(num_positions: int = 10, object_pool: List[str] = None) -> Dict[str, Any]:
     """
-    创建模拟环境
+    Create simulated environment
     
     Args:
-        num_positions: 环境位置数量
-        object_pool: 可选的物体池，如果为None则使用默认物体
+        num_positions: Number of positions in environment
+        object_pool: Optional object pool, uses default objects if None
     
     Returns:
-        环境字典
+        Environment dictionary
     """
     if object_pool is None:
         object_pool = [
@@ -24,7 +24,7 @@ def create_environment(num_positions: int = 10, object_pool: List[str] = None) -
             "cushion", "rug", "shelf", "drawer", "cabinet"
         ]
     
-    # 为每个位置随机分配1-3个物体
+    # Randomly assign 1-3 objects to each position
     objects = {}
     for pos in range(num_positions):
         num_objects = random.randint(1, 3)
@@ -35,35 +35,36 @@ def create_environment(num_positions: int = 10, object_pool: List[str] = None) -
         "num_positions": num_positions,
         "agent_positions": {},
         "message_queue": [],
+        "message_history": [],
         "explored_by_all": set()
     }
 
 
 def get_visible_objects(position: int, env: Dict[str, Any]) -> List[str]:
     """
-    获取当前位置可见的物体
+    Get visible objects at current position
     
     Args:
-        position: 当前位置索引
-        env: 环境字典
+        position: Current position index
+        env: Environment dictionary
     
     Returns:
-        物体列表
+        List of objects
     """
     return env["objects"].get(position, [])
 
 
 def execute_action(agent_id: str, action: str, env: Dict[str, Any]) -> int:
     """
-    执行动作并更新环境
+    Execute action and update environment
     
     Args:
-        agent_id: agent标识
-        action: "forward" 或 "backward"
-        env: 环境字典
+        agent_id: Agent identifier
+        action: "forward" or "backward"
+        env: Environment dictionary
     
     Returns:
-        新位置
+        New position
     """
     current_pos = env["agent_positions"].get(agent_id, 0)
     
@@ -72,11 +73,11 @@ def execute_action(agent_id: str, action: str, env: Dict[str, Any]) -> int:
     elif action == "backward":
         new_pos = max(current_pos - 1, 0)
     else:
-        new_pos = current_pos  # 无效动作，保持不动
+        new_pos = current_pos  # Invalid action, stay in place
     
     env["agent_positions"][agent_id] = new_pos
     
-    # 更新全局探索记录
+    # Update global exploration record
     visible = get_visible_objects(new_pos, env)
     env["explored_by_all"].update(visible)
     
@@ -85,31 +86,37 @@ def execute_action(agent_id: str, action: str, env: Dict[str, Any]) -> int:
 
 def add_message(env: Dict[str, Any], sender: str, recipient: str, message: str):
     """
-    添加agent间消息
+    Add message between agents
     
     Args:
-        env: 环境字典
-        sender: 发送者agent_id
-        recipient: 接收者agent_id
-        message: 消息内容
+        env: Environment dictionary
+        sender: Sender agent_id
+        recipient: Recipient agent_id
+        message: Message content
     """
-    env["message_queue"].append({
+    msg = {
         "sender": sender,
         "recipient": recipient,
         "message": message
-    })
+    }
+    env["message_queue"].append(msg)
+    
+    # Also save to history (never deleted)
+    if "message_history" not in env:
+        env["message_history"] = []
+    env["message_history"].append(msg.copy())
 
 
 def get_messages_for(env: Dict[str, Any], agent_id: str) -> List[Dict[str, str]]:
     """
-    获取发给指定agent的消息（并从队列中移除）
+    Get messages for specified agent (and remove from queue)
     
     Args:
-        env: 环境字典
-        agent_id: agent标识
+        env: Environment dictionary
+        agent_id: Agent identifier
     
     Returns:
-        消息列表
+        List of messages
     """
     messages = []
     remaining = []
@@ -126,23 +133,23 @@ def get_messages_for(env: Dict[str, Any], agent_id: str) -> List[Dict[str, str]]
 
 
 if __name__ == "__main__":
-    # 测试环境
+    # Test environment
     print("Testing environment simulation...")
     
-    # 创建环境
+    # Create environment
     env = create_environment(num_positions=10)
     print(f"\nEnvironment created with {env['num_positions']} positions")
     
-    # 显示环境
+    # Display environment
     print("\nEnvironment layout:")
     for pos, objects in env["objects"].items():
         print(f"  Position {pos}: {objects}")
     
-    # 初始化两个agent
+    # Initialize two agents
     env["agent_positions"]["agent1"] = 0
     env["agent_positions"]["agent2"] = 0
     
-    # 模拟一些动作
+    # Simulate some actions
     print("\n--- Simulation ---")
     
     print("\nAgent1 at position 0, sees:", get_visible_objects(0, env))
@@ -153,7 +160,7 @@ if __name__ == "__main__":
     new_pos = execute_action("agent2", "forward", env)
     print(f"Agent2 moves forward to position {new_pos}")
     
-    # 测试消息
+    # Test messages
     print("\n--- Communication ---")
     add_message(env, "agent1", "agent2", "I found a chair at position 1")
     add_message(env, "agent2", "agent1", "I found a lamp at position 1")
