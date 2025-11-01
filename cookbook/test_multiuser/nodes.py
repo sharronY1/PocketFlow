@@ -48,7 +48,6 @@ class PerceptionNode(Node):
         # If unity screenshot path is present, generate a caption and extract objects
         # Example of exec_res: ["screenshot:E:/.../img.png"] or ["chair","table"] for mock
         caption = None
-        extracted_objects = []
         if exec_res and isinstance(exec_res[0], str) and exec_res[0].startswith("screenshot:"):
             image_path = exec_res[0].split("screenshot:", 1)[1]
             caption = caption_image(image_path)
@@ -57,12 +56,8 @@ class PerceptionNode(Node):
             # Update visible_objects with extracted object list for consistency
             if extracted_objects:
                 shared["visible_objects"] = extracted_objects
-        else:
-            # For mock mode, use the objects directly
-            extracted_objects = list(exec_res) if exec_res else []
         
         shared["visible_caption"] = caption or ", ".join(map(str, shared["visible_objects"]))
-        shared["extracted_objects"] = extracted_objects  # Store extracted objects for later use
         print(f"[{shared['agent_id']}] Position {shared['position']}: sees {shared['visible_objects']}")
         if caption:
             print(f"[{shared['agent_id']}] Caption: {shared['visible_caption']}")
@@ -290,7 +285,7 @@ class ExecutionNode(Node):
             except Exception as e:
                 print(f"[{agent_id}] Failed to send message: {e}")
         
-        # Note: explored_objects will be updated in UpdateMemoryNode based on extracted_objects
+        # Note: explored_objects will be updated in UpdateMemoryNode based on visible_objects
         # from PerceptionNode, not from visible_objects here
         
         return "default"
@@ -317,16 +312,21 @@ class UpdateMemoryNode(Node):
             messages_summary = "; ".join(messages_parts)
             memory_text += f" | Context from others: {messages_summary}"
         
-        # Prepare data for shared memory update
-        extracted_objects = shared.get("extracted_objects", [])
-        if not extracted_objects and shared.get("visible_objects"):
-            # Fallback to visible_objects if extracted_objects not available
-            extracted_objects = list(shared["visible_objects"]) if isinstance(shared["visible_objects"], (list, set)) else [str(shared["visible_objects"])]
+        # Prepare data for shared memory update - use visible_objects directly
+        visible_objects = shared.get("visible_objects", [])
+        # Filter out screenshot paths (in case extraction failed)
+        if visible_objects and isinstance(visible_objects, (list, set)):
+            objects_for_shared = [
+                obj for obj in visible_objects 
+                if isinstance(obj, str) and not obj.startswith("screenshot:")
+            ]
+        else:
+            objects_for_shared = []
         
-        return memory_text, shared["memory_index"], shared["memory_texts"], shared.get("shared_memory"), shared["agent_id"], shared["position"], extracted_objects
+        return memory_text, shared["memory_index"], shared["memory_texts"], shared.get("shared_memory"), shared["agent_id"], shared["position"], objects_for_shared
     
     def exec(self, prep_res):
-        memory_text, index, memory_texts, shared_memory, agent_id, position, extracted_objects = prep_res
+        memory_text, index, memory_texts, shared_memory, agent_id, position, objects_for_shared = prep_res
         
         # Get embedding
         embedding = get_embedding(memory_text)
@@ -335,18 +335,18 @@ class UpdateMemoryNode(Node):
         add_to_memory(index, embedding, memory_text, memory_texts)
         
         # Update shared memory with discovered objects (if shared_memory exists)
-        if shared_memory is not None and extracted_objects:
+        if shared_memory is not None and objects_for_shared:
             with env_lock:
                 # Convert objects to set for easier handling
-                objects_set = set(obj.lower().strip() for obj in extracted_objects if obj)
+                objects_set = set(obj.lower().strip() for obj in objects_for_shared if obj)
                 
                 # Update global objects set (only increases, never decreases)
                 shared_memory["objects"].update(objects_set)
         
-        return memory_text, extracted_objects
+        return memory_text, objects_for_shared
     
     def post(self, shared, prep_res, exec_res):
-        memory_text, extracted_objects = exec_res
+        memory_text, objects_for_shared = exec_res
         
         # Record action history with messages received
         shared["action_history"].append({
@@ -357,9 +357,14 @@ class UpdateMemoryNode(Node):
             "messages_received": shared.get("other_agent_messages", [])  # Record received messages
         })
         
+        # Update explored_objects with discovered objects
+        if objects_for_shared:
+            objects_set = set(obj.lower().strip() for obj in objects_for_shared if obj)
+            shared["explored_objects"].update(objects_set)
+        
         print(f"[{shared['agent_id']}] Memory updated: {memory_text[:100]}...")
-        if extracted_objects:
-            print(f"[{shared['agent_id']}] Discovered objects: {extracted_objects}")
+        if objects_for_shared:
+            print(f"[{shared['agent_id']}] Discovered objects: {objects_for_shared}")
             if shared.get("shared_memory"):
                 total_objects = len(shared["shared_memory"]["objects"])
                 print(f"[{shared['agent_id']}] Total unique objects in shared memory: {total_objects}")
