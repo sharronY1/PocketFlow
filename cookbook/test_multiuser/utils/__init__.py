@@ -6,6 +6,7 @@ from .embedding import get_embedding, get_embeddings_batch
 from .memory import create_memory, add_to_memory, search_memory
 from .environment import (
     create_environment,
+    create_shared_memory,
     add_message,
     get_messages_for
 )
@@ -24,6 +25,7 @@ __all__ = [
     'add_to_memory',
     'search_memory',
     'create_environment',
+    'create_shared_memory',
     'add_message',
     'get_messages_for',
     'PerceptionInterface',

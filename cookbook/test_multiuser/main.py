@@ -2,20 +2,20 @@
 Multi-Agent XR Environment Exploration System - Main Program
 """
 import os
-from utils import create_environment, create_memory
+from utils import create_environment, create_shared_memory, create_memory
 from utils.perception_interface import create_perception, PerceptionInterface
 from flow import create_agent_flow
 import time
 import argparse
 
 
-def run_agent(agent_id: str, global_env: dict, perception: PerceptionInterface, max_steps: int = 20):
+def run_agent(agent_id: str, shared_memory: dict, perception: PerceptionInterface, max_steps: int = 20):
     """
     Run exploration flow for a single agent
     
     Args:
         agent_id: Agent identifier
-        global_env: Global shared environment
+        shared_memory: Shared memory structure (replaces global_env for Unity mode)
         perception: Perception interface instance
         max_steps: Maximum exploration steps
     """
@@ -26,7 +26,7 @@ def run_agent(agent_id: str, global_env: dict, perception: PerceptionInterface, 
     # Create agent's private shared store
     agent_shared = {
         "agent_id": agent_id,
-        "global_env": global_env,
+        "shared_memory": shared_memory,  # Shared memory accessible by all agents
         "perception": perception,  # Add perception interface
         "position": 0,
         "step_count": 0,
@@ -50,8 +50,9 @@ def run_agent(agent_id: str, global_env: dict, perception: PerceptionInterface, 
         "action_history": []
     }
     
-    # Initialize agent position in environment
-    global_env["agent_positions"][agent_id] = 0
+    # Initialize agent position in shared memory
+    if shared_memory:
+        shared_memory["agent_positions"][agent_id] = 0
     
     # Create and run flow
     flow = create_agent_flow()
@@ -94,34 +95,38 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
     print("Multi-Agent XR Environment Exploration System")
     print("="*60)
     
-    # Create global environment only for local/mock/unity modes
-    print("\n[System] Creating environment...")
-    if perception_type in ("mock", "unity"):
-        global_env = create_environment(num_positions=10)
-        global_env["max_steps"] = int(os.getenv("MAX_STEPS", "3"))
+    # Create shared memory for Unity mode (dynamic object discovery)
+    # For mock mode, still use create_environment with preset objects
+    print("\n[System] Creating shared memory...")
+    if perception_type == "unity":
+        # Unity mode: use shared memory where objects are discovered dynamically
+        shared_memory = create_shared_memory()
+        shared_memory["max_steps"] = int(os.getenv("MAX_STEPS", "3"))
+        print("[System] Shared memory created for Unity mode (objects will be discovered dynamically)")
+    elif perception_type == "mock":
+        # Mock mode: use preset environment with predefined objects
+        shared_memory = create_environment(num_positions=10)
+        shared_memory["max_steps"] = int(os.getenv("MAX_STEPS", "3"))
+        print(f"[System] Mock environment created with {shared_memory['num_positions']} positions")
+        print("\n[System] Environment layout:")
+        for pos in sorted(shared_memory["objects"].keys()):
+            print(f"  Position {pos}: {shared_memory['objects'][pos]}")
     else:
         # For remote mode, keep a lightweight dict for non-shared fields
-        global_env = {"max_steps": int(os.getenv("MAX_STEPS", "3")), "agent_positions": {}}
-    
-    # Only print mock layout when using mock
-    if perception_type == "mock":
-        print(f"[System] Environment created with {global_env['num_positions']} positions")
-        print("\n[System] Environment layout:")
-        for pos in sorted(global_env["objects"].keys()):
-            print(f"  Position {pos}: {global_env['objects'][pos]}")
+        shared_memory = {"max_steps": int(os.getenv("MAX_STEPS", "3")), "agent_positions": {}}
     
     # Create perception interface
     print(f"\n[System] Creating {perception_type} perception interface...")
     if perception_type == "mock":
         # perception is a mock perception interface
-        perception = create_perception("mock", env=global_env)
+        perception = create_perception("mock", env=shared_memory)
         print("[System] Using MockPerception (simulated environment)")
     elif perception_type == "xr":
         # TODO: Configure real XR client
         # xr_client = YourXRClient(host="localhost", port=8080)
         # perception = create_perception("xr", xr_client=xr_client, config={...})
         print("[System] XR perception not yet implemented, falling back to mock")
-        perception = create_perception("mock", env=global_env)
+        perception = create_perception("mock", env=shared_memory)
     elif perception_type == "unity":
         # Unity window must be focused. Configure optional screenshot directory/region via env vars.
         screenshot_dir = os.getenv("SCREENSHOT_DIR")
@@ -156,7 +161,7 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
     
     print("\n[System] Starting agent...")
     start_time = time.time()
-    run_agent(agent_id, global_env, perception, 15)
+    run_agent(agent_id, shared_memory, perception, 15)
     elapsed_time = time.time() - start_time
     
     # Print overall summary
@@ -164,34 +169,26 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
     print("FINAL SYSTEM SUMMARY")
     print("="*60)
     print(f"Total execution time: {elapsed_time:.2f} seconds")
-    # Support both local and remote modes
-    explored = None
-    total_objects = None
-    if "explored_by_all" in global_env and "objects" in global_env:
-        explored = global_env["explored_by_all"]
-        total_objects = sum(len(objs) for objs in global_env["objects"].values())
+    
+    # Print shared memory summary
+    if "objects" in shared_memory:
+        objects = shared_memory["objects"]
+        print(f"Total unique objects discovered by all agents: {len(objects)}")
+        print(f"Objects: {objects}")
     else:
-        try:
-            info = perception.get_environment_info()
-            explored = set(info.get("explored_by_all", []))
-            total_objects = int(info.get("total_objects", 0))
-        except Exception:
-            explored = set()
-            total_objects = 0
-    print(f"Total unique objects explored by all agents: {len(explored)}")
-    print(f"Objects: {explored}")
-    print(f"Coverage: {len(explored)} / {total_objects} objects")
-    print(f"Final agent positions:")
-    for aid, pos in global_env["agent_positions"].items():
+        print("No objects discovered (shared memory not used)")
+    
+    print(f"\nFinal agent positions:")
+    for aid, pos in shared_memory.get("agent_positions", {}).items():
         print(f"  {aid}: position {pos}")
     
     # Print message history
-    if "message_history" in global_env and global_env["message_history"]:
-        print(f"\nMessage history ({len(global_env['message_history'])} messages):")
-        for i, msg in enumerate(global_env["message_history"][:10], 1):  # Show first 10
+    if "message_history" in shared_memory and shared_memory["message_history"]:
+        print(f"\nMessage history ({len(shared_memory['message_history'])} messages):")
+        for i, msg in enumerate(shared_memory["message_history"][:10], 1):  # Show first 10
             print(f"  {i}. {msg['sender']} → {msg['recipient']}: {msg['message'][:80]}")
-        if len(global_env["message_history"]) > 10:
-            print(f"  ... and {len(global_env['message_history']) - 10} more messages")
+        if len(shared_memory["message_history"]) > 10:
+            print(f"  ... and {len(shared_memory['message_history']) - 10} more messages")
     
     print("="*60)
     

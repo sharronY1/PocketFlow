@@ -334,13 +334,14 @@ class UnityPyAutoGUIPerception(PerceptionInterface):
         # Update logical step counter
         self.agent_steps[agent_id] = self.agent_steps.get(agent_id, 0) + 1
 
-        # Capture new perception after movement
-        path = self._capture(agent_id)
+        # Don't capture screenshot here - it will be done in the next PerceptionNode
+        # This avoids redundant screenshots and ensures all screenshot processing
+        # (caption generation and object extraction) happens in one place
         return {
             "position": self.agent_steps[agent_id],
             "rotation": None,
             "velocity": None,
-            "visible_objects": [f"screenshot:{path}"],
+            "visible_objects": [],  # Will be updated in next PerceptionNode
         }
 
     def _perform_movement_action(self, action: str) -> None:
@@ -505,7 +506,7 @@ if __name__ == "__main__":
         },
         "num_positions": 3,
         "agent_positions": {},
-        "message_queue": [],
+        "message_mailboxes": {},  # Dict: {agent_id: [msg1, msg2, ...]}
         "explored_by_all": set()
     }
     
