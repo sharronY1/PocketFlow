@@ -7,7 +7,7 @@ import os
 import base64
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 try:
     from openai import OpenAI  # type: ignore
