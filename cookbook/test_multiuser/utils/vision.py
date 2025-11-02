@@ -5,6 +5,7 @@ Falls back to filename-based caption if API is unavailable.
 """
 import os
 import base64
+import json
 from pathlib import Path
 from typing import Optional
 
