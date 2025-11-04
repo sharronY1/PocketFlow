@@ -1,0 +1,16 @@
+{
+  "name": "com.camera.extraction",
+  "displayName": "Camera Extraction Tools",
+  "version": "1.0.0",
+  "unity": "2020.3",
+  "description": "Runtime camera intrinsics and pose logging with batch attach automation.",
+  "author": {
+    "name": "CS_FYP"
+  },
+  "keywords": ["camera", "intrinsics", "logging", "batch"],
+  "dependencies": {}
+}
+
+
+
+

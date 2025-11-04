@@ -430,6 +430,10 @@ class UpdateMemoryNode(Node):
         # Update shared memory with discovered objects (if shared_memory exists)
         if shared_memory is not None and objects_for_shared:
             with env_lock:
+                # Ensure "objects" key exists in shared_memory
+                if "objects" not in shared_memory:
+                    shared_memory["objects"] = set()
+                
                 # Convert objects to set for easier handling
                 objects_set = set(obj.lower().strip() for obj in objects_for_shared if obj)
                 

@@ -98,7 +98,7 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
     # Create shared memory for Unity mode (dynamic object discovery)
     # For mock mode, still use create_environment with preset objects
     print("\n[System] Creating shared memory...")
-    if perception_type == "unity":
+    if perception_type == "unity" or perception_type == "unity-camera":
         # Unity mode: use shared memory where objects are discovered dynamically
         shared_memory = create_shared_memory()
         shared_memory["max_steps"] = int(os.getenv("MAX_STEPS", "3"))
@@ -147,6 +147,20 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
             step_sleep_seconds=float(os.getenv("STEP_SLEEP", "0.3")),
         )
         print("[System] Using UnityPyAutoGUIPerception (pyautogui). Make sure the Unity window is focused.")
+    elif perception_type == "unity-camera":
+        # Unity camera extraction package integration (Agent-controlled screenshots)
+        unity_output_base_path = os.getenv("UNITY_OUTPUT_BASE_PATH")
+        if not unity_output_base_path:
+            raise ValueError("UNITY_OUTPUT_BASE_PATH environment variable is required for unity-camera perception")
+        agent_request_dir = os.getenv("AGENT_REQUEST_DIR")  # Optional
+        perception = create_perception(
+            "unity-camera",
+            unity_output_base_path=unity_output_base_path,
+            agent_request_dir=agent_request_dir,
+            step_sleep_seconds=float(os.getenv("STEP_SLEEP", "0.3")),
+            screenshot_timeout=float(os.getenv("SCREENSHOT_TIMEOUT", "5.0")),
+        )
+        print("[System] Using UnityCameraPerception (camera extraction package). Make sure Unity is running with autoScreenshotEnabled=false.")
     elif perception_type == "remote":
         base_url = os.getenv("ENV_SERVER_URL")
         if not base_url:
@@ -197,7 +211,7 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run a single exploration agent")
-    parser.add_argument("--perception", default=os.getenv("PERCEPTION", "unity"), choices=["mock", "unity", "remote"], help="Perception type")
+    parser.add_argument("--perception", default=os.getenv("PERCEPTION", "unity"), choices=["mock", "unity", "unity-camera", "remote"], help="Perception type")
     parser.add_argument("--agent-id", default=os.getenv("AGENT_ID", "Agent"), help="Unique agent id")
     args = parser.parse_args()
     main(args.perception, args.agent_id)

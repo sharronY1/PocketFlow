@@ -1,3 +1,12 @@
+
+
+
+
+
+
+
+
+
 # Multi-Agent XR Environment Exploration
 
 一个基于PocketFlow的多智能体协作环境探索系统，展示了两个Agent在XR虚拟环境中自主探索并通过RAG记忆系统避免重复探索。
@@ -73,7 +82,7 @@ ENV_SERVER_URL=http://<server_ip>:8000 python main.py --perception unity --agent
 
 现在支持通过一个中心化环境服务让不同机器上的 Agents 共享同一环境与消息。
 
-### 1) 启动环境服务（任意一台机器）
+### 1 启动环境服务（任意一台机器）
 
 ```bash
 pip install fastapi uvicorn pydantic
