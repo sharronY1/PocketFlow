@@ -59,48 +59,26 @@ $env:GEMINI_API_KEY="your-api-key-here"
 export GEMINI_API_KEY="your-api-key-here"
 ```
 
-## 运行（单 Agent 简化）
+## 运行
 
-- 启动集中环境服务（一次即可）
+### Mock 模式（模拟环境）
 ```bash
-uvicorn env_server:app --host 0.0.0.0 --port 8000
+python main.py --perception mock --agent-id Agent1
 ```
 
-- 在每台机器各自启动一个 Agent：
+### Unity 模式（pyautogui 控制）
 ```bash
-# 远程消息/环境（remote）。如需仅聊天：设置 MESSAGING_ONLY=1
-ENV_SERVER_URL=http://<server_ip>:8000 python main.py --perception remote --agent-id Laptop
-
 # Unity 控制（pyautogui），需保证 Unity 窗口已聚焦
-ENV_SERVER_URL=http://<server_ip>:8000 python main.py --perception unity --agent-id Lab \
-  --screenshot_dir "$SCREENSHOT_DIR"  # 可选，使用环境变量见 main.py 注释
+python main.py --perception unity --agent-id Lab
+```
+
+### Unity Camera 模式（相机提取包）
+```bash
+export UNITY_OUTPUT_BASE_PATH="/path/to/unity/output"
+python main.py --perception unity-camera --agent-id Agent1
 ```
 
 注意：`main.py` 现在默认只启动一个 agent（通过 `--agent-id` 指定）。
-
-## 分布式（Remote）模式：多机运行 Agents
-
-现在支持通过一个中心化环境服务让不同机器上的 Agents 共享同一环境与消息。
-
-### 1 启动环境服务（任意一台机器）
-
-```bash
-pip install fastapi uvicorn pydantic
-python env_server.py  # 默认 0.0.0.0:8000
-```
-
-### 2) 在不同机器上启动 Agents
-
-每台 Agent 机器设置服务地址并以 remote 模式运行：
-
-```bash
-export ENV_SERVER_URL="http://<server_host>:8000"
-python -c "import main; main.main('remote')"
-```
-
-说明：
-- 多台机器上的 Agents 共享集中化的世界状态（位置、全局探索集合、消息队列）。
-- 消息与动作更新通过环境服务完成，Agent 本地的记忆索引仍然是各自独立的。
 
 ## 系统架构
 

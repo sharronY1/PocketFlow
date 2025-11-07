@@ -46,6 +46,7 @@ The system uses a `PerceptionInterface` abstraction layer to support different p
 
 - **MockPerception**: Simulated environment (for development and testing)
 - **UnityPyAutoGUIPerception**: Interacts with Unity game window via pyautogui (screenshots and keyboard input)
+- **UnityCameraPerception**: Unity camera extraction package integration (Agent-controlled screenshots)
 - **XRPerception**: Template for real XR application interface (to be implemented)
 
 The perception interface provides:
@@ -130,7 +131,7 @@ class CommunicationNode(Node):
         return "default"
 ```
 
-For mock/local perception, messages are managed via mailbox system in shared memory. For remote perception, messages are handled by the centralized environment server.
+For mock/local perception, messages are managed via mailbox system in shared memory.
 
 ## 5. Memory System Architecture
 
@@ -318,21 +319,6 @@ The system supports multiple perception modes:
 - Requires Unity window to be focused
 - Uses `UnityPyAutoGUIPerception`
 - Objects are discovered dynamically through image analysis
-
-### Remote Mode
-- Communicates with centralized environment server (FastAPI)
-- Supports multi-machine agent deployment
-- Uses HTTP endpoints for environment queries and messaging
-- Uses `RemotePerception`
-- Can operate in messaging-only mode (`MESSAGING_ONLY=true`) for pure communication
-
-### Environment Server
-The centralized server (`env_server.py`) provides:
-- `GET /env/info`: Get environment information
-- `POST /env/visible`: Get visible objects at position
-- `POST /env/execute`: Execute action and return new state
-- `POST /messages/send`: Send message
-- `POST /messages/poll`: Poll messages for agent
 
 ## 9. Memory Sharing Through Messages
 

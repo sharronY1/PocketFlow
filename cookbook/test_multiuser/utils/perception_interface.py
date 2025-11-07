@@ -82,7 +82,7 @@ class PerceptionInterface(ABC):
         """
         pass
 
-    # Optional messaging hooks for remote/shared environments
+    # Optional messaging hooks for shared environments
     def send_message(self, sender: str, recipient: str, message: str) -> None:
         raise NotImplementedError
 
@@ -395,63 +395,6 @@ class UnityPyAutoGUIPerception(PerceptionInterface):
         return data.get("messages", [])
 
 
-class RemotePerception(PerceptionInterface):
-    """
-    Remote perception implementation that calls a centralized environment service over HTTP.
-    """
-
-    def __init__(self, base_url: str, messaging_only: bool = False):
-        self.base_url = base_url.rstrip('/')
-        # If messaging_only=True, environment endpoints are not used.
-        # The perception will only send/poll messages and keep a local static position.
-        self.messaging_only = messaging_only or bool(os.getenv("MESSAGING_ONLY"))
-        self._agent_positions: Dict[str, int] = {}
-
-    def get_visible_objects(self, agent_id: str, position: Any) -> List[str]:
-        if self.messaging_only:
-            return []
-        resp = requests.post(f"{self.base_url}/env/visible", json={"agent_id": agent_id, "position": position}, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("visible_objects", [])
-
-    def get_agent_state(self, agent_id: str) -> Dict[str, Any]:
-        # In remote mode, position is managed by the server after actions. If needed, env info can include positions.
-        if self.messaging_only:
-            pos = self._agent_positions.get(agent_id, 0)
-            return {"position": pos}
-        info = self.get_environment_info()
-        position = (info.get("agent_positions") or {}).get(agent_id, 0)
-        return {"position": position}
-
-    def execute_action(self, agent_id: str, action: str, params: Optional[Dict] = None) -> Dict[str, Any]:
-        if self.messaging_only:
-            pos = self._agent_positions.get(agent_id, 0)
-            # keep position unchanged; do not explore
-            self._agent_positions[agent_id] = pos
-            return {"position": pos, "visible_objects": []}
-        resp = requests.post(f"{self.base_url}/env/execute", json={"agent_id": agent_id, "action": action}, timeout=10)
-        resp.raise_for_status()
-        return resp.json()
-
-    def get_environment_info(self) -> Dict[str, Any]:
-        if self.messaging_only:
-            return {"type": "remote-msg-only"}
-        resp = requests.get(f"{self.base_url}/env/info", timeout=10)
-        resp.raise_for_status()
-        return resp.json()
-
-    def send_message(self, sender: str, recipient: str, message: str) -> None:
-        resp = requests.post(f"{self.base_url}/messages/send", json={"sender": sender, "recipient": recipient, "message": message}, timeout=10)
-        resp.raise_for_status()
-
-    def poll_messages(self, agent_id: str) -> List[Dict[str, Any]]:
-        resp = requests.post(f"{self.base_url}/messages/poll", json={"agent_id": agent_id}, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("messages", [])
-
-
 class UnityCameraPerception(PerceptionInterface):
     """
     Perception implementation that uses Unity camera extraction package for Agent-controlled screenshots.
@@ -701,12 +644,6 @@ def create_perception(perception_type: str = "mock", **kwargs) -> PerceptionInte
             step_sleep_seconds=kwargs.get("step_sleep_seconds", 0.3),
             messaging_base_url=kwargs.get("messaging_base_url") or os.getenv("ENV_SERVER_URL"),
         )
-    elif perception_type == "remote":
-        base_url = kwargs.get("base_url") or os.getenv("ENV_SERVER_URL")
-        if not base_url:
-            raise ValueError("Remote perception requires 'base_url' or ENV_SERVER_URL")
-        messaging_only = bool(kwargs.get("messaging_only") or os.getenv("MESSAGING_ONLY"))
-        return RemotePerception(base_url=base_url, messaging_only=messaging_only)
     elif perception_type == "unity-camera":
         unity_output_base_path = kwargs.get("unity_output_base_path") or os.getenv("UNITY_OUTPUT_BASE_PATH")
         if not unity_output_base_path:

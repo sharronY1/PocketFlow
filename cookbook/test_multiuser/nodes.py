@@ -150,7 +150,7 @@ class DecisionNode(Node):
                 "thinking": "LLM disabled for local validation.",
                 "action": action,
                 "reason": "Deterministic fallback decision without LLM.",
-                "message_to_others": "Testing remote mode without LLM"
+                "message_to_others": "Testing without LLM"
             }
 
         # Construct decision prompt

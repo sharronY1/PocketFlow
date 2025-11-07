@@ -88,7 +88,7 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
     Main program entry point (single agent)
     
     Args:
-        perception_type: Perception type ("mock", "unity", or "remote")
+        perception_type: Perception type ("mock", "unity", or "unity-camera")
         agent_id: Unique agent identifier
     """
     print("\n" + "="*60)
@@ -111,9 +111,6 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
         print("\n[System] Environment layout:")
         for pos in sorted(shared_memory["objects"].keys()):
             print(f"  Position {pos}: {shared_memory['objects'][pos]}")
-    else:
-        # For remote mode, keep a lightweight dict for non-shared fields
-        shared_memory = {"max_steps": int(os.getenv("MAX_STEPS", "3")), "agent_positions": {}}
     
     # Create perception interface
     print(f"\n[System] Creating {perception_type} perception interface...")
@@ -161,12 +158,6 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
             screenshot_timeout=float(os.getenv("SCREENSHOT_TIMEOUT", "5.0")),
         )
         print("[System] Using UnityCameraPerception (camera extraction package). Make sure Unity is running with autoScreenshotEnabled=false.")
-    elif perception_type == "remote":
-        base_url = os.getenv("ENV_SERVER_URL")
-        if not base_url:
-            raise ValueError("ENV_SERVER_URL is required for remote perception")
-        perception = create_perception("remote", base_url=base_url)
-        print(f"[System] Using RemotePerception at {base_url}")
     else:
         raise ValueError(f"Unknown perception type: {perception_type}")
     
@@ -211,7 +202,7 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run a single exploration agent")
-    parser.add_argument("--perception", default=os.getenv("PERCEPTION", "unity"), choices=["mock", "unity", "unity-camera", "remote"], help="Perception type")
+    parser.add_argument("--perception", default=os.getenv("PERCEPTION", "unity"), choices=["mock", "unity", "unity-camera"], help="Perception type")
     parser.add_argument("--agent-id", default=os.getenv("AGENT_ID", "Agent"), help="Unique agent id")
     args = parser.parse_args()
     main(args.perception, args.agent_id)
