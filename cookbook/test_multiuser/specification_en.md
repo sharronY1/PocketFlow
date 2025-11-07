@@ -46,7 +46,6 @@ The system uses a `PerceptionInterface` abstraction layer to support different p
 
 - **MockPerception**: Simulated environment (for development and testing)
 - **UnityPyAutoGUIPerception**: Interacts with Unity game window via pyautogui (screenshots and keyboard input)
-- **RemotePerception**: Communicates with centralized environment service over HTTP
 - **XRPerception**: Template for real XR application interface (to be implemented)
 
 The perception interface provides:
