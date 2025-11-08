@@ -18,8 +18,8 @@
     "screenshotOrganizationMode": "ByCamera",
     "useUniformFOV": true,
     "uniformFOV": 60.0,
-    "screenshotWidth": 860,
-    "screenshotHeight": 323,
+    "screenshotWidth": 512,
+    "screenshotHeight": 512,
     "filterByWallOcclusion": true,
     "wallNameKeywords": "boundary,wall,barrier,reset, door",
     "visibilitySampleVerticalOffset": 0.2
