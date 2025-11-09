@@ -5,6 +5,7 @@ faiss-cpu
 numpy
 pyyaml
 pyautogui
+pygetwindow
 fastapi
 uvicorn
 pydantic

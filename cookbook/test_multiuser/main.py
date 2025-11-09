@@ -2,8 +2,10 @@
 Multi-Agent XR Environment Exploration System - Main Program
 """
 import os
+import sys
 from utils import create_environment, create_shared_memory, create_memory
 from utils.perception_interface import create_perception, PerceptionInterface
+from utils.window_manager import find_and_focus_meta_xr_simulator
 from flow import create_agent_flow
 import time
 import argparse
@@ -125,6 +127,16 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
         print("[System] XR perception not yet implemented, falling back to mock")
         perception = create_perception("mock", env=shared_memory)
     elif perception_type == "unity":
+        # Find and focus Meta XR Simulator window
+        print("\n[System] Attempting to find and focus Meta XR Simulator window...")
+        focus_success = find_and_focus_meta_xr_simulator()
+        
+        if not focus_success:
+            print("[System] Error: Could not find Meta XR Simulator window.")
+            print("[System] Please make sure Meta XR Simulator is running before starting the agent.")
+            print("[System] Exiting...")
+            sys.exit(1)
+        
         # Unity window must be focused. Configure optional screenshot directory/region via env vars.
         screenshot_dir = os.getenv("SCREENSHOT_DIR")
         # SCREENSHOT_REGION format: left,top,width,height
@@ -143,7 +155,7 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
             capture_region=capture_region,
             step_sleep_seconds=float(os.getenv("STEP_SLEEP", "0.3")),
         )
-        print("[System] Using UnityPyAutoGUIPerception (pyautogui). Make sure the Unity window is focused.")
+        print("[System] Using UnityPyAutoGUIPerception (pyautogui).")
     elif perception_type == "unity-camera":
         # Unity camera extraction package integration (Agent-controlled screenshots)
         unity_output_base_path = os.getenv("UNITY_OUTPUT_BASE_PATH")
