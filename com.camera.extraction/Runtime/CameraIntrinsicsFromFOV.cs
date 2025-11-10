@@ -15,7 +15,7 @@ namespace CameraExtraction
 		[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
 		private static void AutoAttachToMainCamera()
 		{
-			if (FindObjectOfType<CameraIntrinsicsFromFOV>() != null) return;
+			if (FindAnyObjectByType<CameraIntrinsicsFromFOV>() != null) return;
 			// find main camera
 			GameObject mainCameraObj = GameObject.FindGameObjectWithTag("MainCamera");
 			if (mainCameraObj == null) { Debug.LogWarning("[CameraIntrinsics] No MainCamera found"); return; }
