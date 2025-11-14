@@ -489,15 +489,13 @@ class UnityCameraPerception(PerceptionInterface):
         # Simplified path: {outputBasePath}/screenshots/{CameraName}/
         # Filename format: {agent_id}_{timestamp}_{ProjectName}_{CameraName}_screenshot_frame_*.png
         
+        # Use recursive search to find all matching files, then filter for "Main Camera" folder
         search_patterns = [
-            # Pattern 1: Direct camera folder search (simplified path)
-            # {outputBasePath}/screenshots/{CameraName}/{agent_id}_{timestamp}*.png
+            # Pattern 1: Recursively search in screenshots folder
             str(self.unity_output_base_path / "screenshots" / "**" / f"{agent_id}_{timestamp}*.png"),
             # Pattern 2: Timestamp folder search (if using ByTimestamp mode)
-            # {outputBasePath}/screenshots/{timestamp}/{agent_id}_{timestamp}*.png
             str(self.unity_output_base_path / "screenshots" / "**" / timestamp / f"{agent_id}_{timestamp}*.png"),
             # Pattern 3: Legacy path support (with project subfolder)
-            # {outputBasePath}/{ProjectName}/{ProjectName}_screenshots/{CameraName}/{agent_id}_{timestamp}*.png
             str(self.unity_output_base_path / "**" / "*_screenshots" / "**" / f"{agent_id}_{timestamp}*.png"),
             # Pattern 4: Fallback - any file with agent_id and timestamp
             str(self.unity_output_base_path / "**" / f"{agent_id}_{timestamp}*.png"),
@@ -506,12 +504,20 @@ class UnityCameraPerception(PerceptionInterface):
         while time.time() - start_time < timeout:
             for pattern in search_patterns:
                 matches = glob.glob(pattern, recursive=True)
+                
                 if matches:
-                    # Return the most recently modified file
-                    latest = max(matches, key=lambda p: Path(p).stat().st_mtime)
-                    # Check if file was created after our request
-                    if Path(latest).stat().st_mtime >= self._last_request_time.get(agent_id, 0):
-                        return latest
+                    # Filter: only match files in "Main Camera" folder (case-insensitive, but preserve space)
+                    main_camera_matches = [
+                        m for m in matches 
+                        if any("main camera" in part.lower() for part in Path(m).parts)
+                    ]
+                    
+                    if main_camera_matches:
+                        # Return the most recently modified file
+                        latest = max(main_camera_matches, key=lambda p: Path(p).stat().st_mtime)
+                        # Check if file was created after our request
+                        if Path(latest).stat().st_mtime >= self._last_request_time.get(agent_id, 0):
+                            return latest
             
             time.sleep(0.1)  # Check every 100ms
         

@@ -33,7 +33,7 @@ namespace CameraExtraction
 		[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
 		private static void AutoAttach()
 		{
-			if (FindObjectOfType<MultiCameraExtractor>() != null) return;
+			if (FindAnyObjectByType<MultiCameraExtractor>() != null) return;
 			var go = new GameObject("__MultiCameraExtractor");
 			go.AddComponent<MultiCameraExtractor>();
 		}
@@ -69,12 +69,16 @@ namespace CameraExtraction
 		// 1) Check for Agent screenshot requests (if auto screenshot is disabled)
 		if (!config.autoScreenshotEnabled)
 		{
+			// Agent control mode: Only check for requests, do NOT maintain tracked hosts periodically
+			// This avoids performance overhead when agent is not requesting screenshots
 			agentRequestCheckTimer += Time.deltaTime;
 			if (agentRequestCheckTimer >= agentRequestCheckInterval)
 			{
 				agentRequestCheckTimer = 0f;
 				CheckAndProcessAgentRequests();
 			}
+			// NOTE: MaintainTrackedHosts() is called ONLY when agent requests a screenshot
+			// See CheckAndProcessAgentRequests() method
 		}
 		else
 		{
@@ -99,16 +103,15 @@ namespace CameraExtraction
 				TriggerAllScreenshots(sharedTimestamp);
 				isCapturing = false;
 			}
-		}
 
-		// 3) Only maintain when not capturing in this frame
-		rescanTimer += Time.deltaTime;
-		if (!isCapturing && rescanTimer >= rescanIntervalSeconds)
-		{
-			rescanTimer = 0f;
-			MaintainTrackedHosts();
+			// 3) Only maintain when not capturing in this frame (auto mode only)
+			rescanTimer += Time.deltaTime;
+			if (!isCapturing && rescanTimer >= rescanIntervalSeconds)
+			{
+				rescanTimer = 0f;
+				MaintainTrackedHosts();
+			}
 		}
-
 		AppendTrackedHostsLog();
 	}
 
@@ -130,19 +133,38 @@ namespace CameraExtraction
 					if (request != null && !string.IsNullOrEmpty(request.agent_id))
 					{
 						// Process the request
-						isCapturing = true;
+						// NOTE: Do NOT set isCapturing = true here, because MaintainTrackedHosts() 
+						// checks isCapturing and will return early if it's true!
 						currentAgentId = request.agent_id;
 						currentAgentTimestamp = !string.IsNullOrEmpty(request.timestamp) 
 							? request.timestamp 
 							: System.DateTime.UtcNow.ToString("yyyyMMdd_HHmmss", System.Globalization.CultureInfo.InvariantCulture);
 						
+						Debug.Log($"[MultiCameraExtractor] 🎬 Processing screenshot request for agent {request.agent_id}");
+						Debug.Log($"[MultiCameraExtractor] 📊 Before MaintainTrackedHosts: trackedHosts.Count = {trackedHosts.Count}");
+						
+						// PERFORMANCE OPTIMIZATION: Only enumerate objects and check wall occlusion 
+						// when agent requests a screenshot, not continuously
+						// This maintains the tracked hosts list (enumerates scene objects, checks occlusion, etc.)
+						// IMPORTANT: isCapturing must be false here so MaintainTrackedHosts() can actually run!
+						MaintainTrackedHosts();
+						
+						Debug.Log($"[MultiCameraExtractor] 📊 After MaintainTrackedHosts: trackedHosts.Count = {trackedHosts.Count}");
+						Debug.Log($"[MultiCameraExtractor] 📋 Tracked hosts: {string.Join(", ", trackedHosts.Where(h => h != null).Select(h => h.name + "_" + h.GetInstanceID()))}");
+						
 						// Filter out wall-occluded hosts immediately before capturing
 						if (config.filterByWallOcclusion)
 						{
+							Debug.Log($"[MultiCameraExtractor] 🔍 Running FilterOccludedHosts...");
 							FilterOccludedHosts();
+							Debug.Log($"[MultiCameraExtractor] 📊 After FilterOccludedHosts: trackedHosts.Count = {trackedHosts.Count}");
 						}
 						
+						// NOW set isCapturing = true to prevent concurrent modifications during screenshot capture
+						isCapturing = true;
+						
 						// Trigger screenshots with agent ID and timestamp
+						Debug.Log($"[MultiCameraExtractor] 📸 Triggering screenshots for {trackedHosts.Count} cameras...");
 						TriggerAllScreenshots(currentAgentTimestamp);
 						isCapturing = false;
 						
@@ -182,7 +204,13 @@ namespace CameraExtraction
 				var mainObj = GameObject.FindGameObjectWithTag("MainCamera");
 				if (mainObj != null) SetupHost(mainObj);
 			}
-			MaintainTrackedHosts();
+			
+			// Only maintain tracked hosts in auto mode during initialization
+			// In agent mode, this will be done on-demand when agent requests screenshots
+			if (config.autoScreenshotEnabled)
+			{
+				MaintainTrackedHosts();
+			}
 		}
 
 		private void FilterOccludedHosts()
@@ -217,10 +245,16 @@ namespace CameraExtraction
 	private void MaintainTrackedHosts()
 		{
 		if (isCapturing) return; // do not modify list during a capture pass
+			
+			Debug.Log($"[MultiCameraExtractor] 🔧 MaintainTrackedHosts START");
+			
 			// Clean up destroyed/disabled (preserve MainCamera even if inactive)
-			trackedHosts.RemoveAll(h => h == null || (!h.CompareTag("MainCamera") && !h.activeInHierarchy));
+			int removedDestroyed = trackedHosts.RemoveAll(h => h == null || (!h.CompareTag("MainCamera") && !h.activeInHierarchy));
+			Debug.Log($"[MultiCameraExtractor] 🗑️ Removed {removedDestroyed} destroyed/disabled objects");
+			
 			// Clean up XR Interaction objects (preserve MainCamera regardless of XR checks)
-	    	trackedHosts.RemoveAll(h => h != null && !h.CompareTag("MainCamera") && IsXRInteractionObject(h));
+	    	int removedXR = trackedHosts.RemoveAll(h => h != null && !h.CompareTag("MainCamera") && IsXRInteractionObject(h));
+			Debug.Log($"[MultiCameraExtractor] 🗑️ Removed {removedXR} XR Interaction objects");
 
 			// Optional: prune hosts that are occluded by walls/boundaries from the Main Camera
 			if (config.filterByWallOcclusion)
@@ -229,40 +263,65 @@ namespace CameraExtraction
 				if (mainObj != null)
 				{
 					var keywords = ParseWallKeywords(config.wallNameKeywords);
+					Debug.Log($"[MultiCameraExtractor] 🔍 Wall keywords: [{string.Join(", ", keywords)}]");
+					int prunedCount = 0;
 					for (int i = trackedHosts.Count - 1; i >= 0; i--)
 					{
 						var h = trackedHosts[i];
 						if (h == null || (includeMainCamera && h.CompareTag("MainCamera"))) continue;
 						if (HasWallBetweenByName(mainObj.transform, h.transform, keywords, config.visibilitySampleVerticalOffset))
 						{
-							Debug.Log($"[MultiCameraExtractor] ✂️ Pruned tracked host '{h.name}' (id={h.GetInstanceID()}) - blocked by wall/boundary from MainCamera.");
+							Debug.Log($"[MultiCameraExtractor] Pruned tracked host '{h.name}' (id={h.GetInstanceID()}) - blocked by wall/boundary from MainCamera.");
 							trackedHosts.RemoveAt(i);
+							prunedCount++;
 						}
 					}
+					Debug.Log($"[MultiCameraExtractor] 🚧 Pruned {prunedCount} wall-occluded objects in MaintainTrackedHosts");
 				}
 			}
 
 			int targetCount = Mathf.Max(0, config.maxTrackedObjects);
+			Debug.Log($"[MultiCameraExtractor] 🎯 Target count: {targetCount} (maxTrackedObjects from config)");
+			
 			// Exclude main camera from the quota (it's handled separately)
 			if (includeMainCamera)
 			{
 				var mainObj = GameObject.FindGameObjectWithTag("MainCamera");
 				// if main camera is not in tracked hosts, add it
-				if (mainObj != null && !trackedHosts.Contains(mainObj)) SetupHost(mainObj);
+				if (mainObj != null && !trackedHosts.Contains(mainObj)) {
+					Debug.Log($"[MultiCameraExtractor] 📷 Adding Main Camera to tracked hosts");
+					SetupHost(mainObj);
+				}
 				// remove duplicate main camera
 				trackedHosts.RemoveAll(h => h != null && h.CompareTag("MainCamera") && h != mainObj);
 			}
 
+			int currentNonMainCount = CountNonMain(trackedHosts);
+			Debug.Log($"[MultiCameraExtractor] 📊 Current non-main camera count: {currentNonMainCount} / {targetCount}");
+			
 			// Fill up to targetCount with best available scene objects
-			if (CountNonMain(trackedHosts) < targetCount)
+			if (currentNonMainCount < targetCount)
 			{
 				var mainObj = includeMainCamera ? GameObject.FindGameObjectWithTag("MainCamera") : null;
 				var keywords = config.filterByWallOcclusion ? ParseWallKeywords(config.wallNameKeywords) : null;
 				
+				int candidatesChecked = 0;
+				int candidatesAdded = 0;
+				int candidatesSkippedWall = 0;
+				int candidatesSkippedOther = 0;
+				
 				foreach (var candidate in EnumerateSceneCandidates())
 				{
-					if (includeMainCamera && candidate.CompareTag("MainCamera")) continue;
-					if (trackedHosts.Contains(candidate)) continue;
+					candidatesChecked++;
+					
+					if (includeMainCamera && candidate.CompareTag("MainCamera")) {
+						candidatesSkippedOther++;
+						continue;
+					}
+					if (trackedHosts.Contains(candidate)) {
+						candidatesSkippedOther++;
+						continue;
+					}
 					
 					// If enabled, skip candidates occluded from Main Camera by walls/boundaries
 					if (config.filterByWallOcclusion && mainObj != null && keywords != null)
@@ -270,18 +329,28 @@ namespace CameraExtraction
 						if (HasWallBetweenByName(mainObj.transform, candidate.transform, keywords, config.visibilitySampleVerticalOffset))
 						{
 							Debug.Log($"[MultiCameraExtractor] ❌ Filtered out candidate '{candidate.name}' (id={candidate.GetInstanceID()}) - blocked by wall/boundary from MainCamera.");
+							candidatesSkippedWall++;
 							continue;
 						}
 					}
 					
+					Debug.Log($"[MultiCameraExtractor] ✅ Adding candidate '{candidate.name}' (id={candidate.GetInstanceID()}) to tracked hosts");
 					SetupHost(candidate);
-					if (CountNonMain(trackedHosts) >= targetCount) break;
+					candidatesAdded++;
+					
+					if (CountNonMain(trackedHosts) >= targetCount) {
+						Debug.Log($"[MultiCameraExtractor] 🎯 Reached target count ({targetCount}), stopping enumeration");
+						break;
+					}
 				}
+				
+				Debug.Log($"[MultiCameraExtractor] 📊 Enumeration summary: checked={candidatesChecked}, added={candidatesAdded}, skipped_wall={candidatesSkippedWall}, skipped_other={candidatesSkippedOther}");
 			}
 			else
 			{
 				// Too many: drop extras that are not main
 				int excess = CountNonMain(trackedHosts) - targetCount;
+				Debug.Log($"[MultiCameraExtractor] ⚠️ Too many tracked hosts ({currentNonMainCount}), removing {excess} excess");
 				for (int i = trackedHosts.Count - 1; i >= 0 && excess > 0; i--)
 				{
 					var h = trackedHosts[i];
@@ -293,6 +362,7 @@ namespace CameraExtraction
 				}
 			}
 
+			Debug.Log($"[MultiCameraExtractor] 🔧 MaintainTrackedHosts END - Final count: {trackedHosts.Count} (non-main: {CountNonMain(trackedHosts)})");
 			
 		}
 

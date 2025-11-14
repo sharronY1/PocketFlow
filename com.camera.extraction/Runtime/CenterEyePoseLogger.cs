@@ -26,7 +26,7 @@ namespace CameraExtraction
 		[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
 		private static void AutoAttachToMainCamera()
 		{
-			if (FindObjectOfType<CenterEyePoseLogger>() != null) return;
+			if (FindAnyObjectByType<CenterEyePoseLogger>() != null) return;
 			GameObject mainCameraObj = GameObject.FindGameObjectWithTag("MainCamera");
 			if (mainCameraObj == null) { Debug.LogWarning("[CenterEyePoseLogger] No MainCamera found"); return; }
 			var logger = mainCameraObj.AddComponent<CenterEyePoseLogger>();

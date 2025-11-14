@@ -55,7 +55,7 @@ namespace CameraExtraction.Editor
 			if (main.GetComponent<CameraIntrinsicsFromFOV>() == null) main.AddComponent<CameraIntrinsicsFromFOV>();
 
 			// Ensure multi-camera orchestrator exists to set up extra hosts
-			if (Object.FindObjectOfType<MultiCameraExtractor>() == null)
+			if (Object.FindAnyObjectByType<MultiCameraExtractor>() == null)
 			{
 				new GameObject("__MultiCameraExtractor").AddComponent<MultiCameraExtractor>();
 			}
