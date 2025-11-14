@@ -64,8 +64,8 @@ def find_and_focus_meta_xr_simulator() -> bool:
     if window:
         print(f"[WindowManager] Found window: {window.title}")
         try:
-            window.activate()
             window.restore()  # Restore if minimized
+            window.activate()  # Activate window to bring it to front
             time.sleep(0.5)  # Give it time to focus
             print("[WindowManager] Window focused successfully")
             return True
