@@ -103,7 +103,7 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
     if perception_type == "unity" or perception_type == "unity-camera":
         # Unity mode: use shared memory where objects are discovered dynamically
         shared_memory = create_shared_memory()
-        shared_memory["max_steps"] = int(os.getenv("MAX_STEPS", "100"))
+        shared_memory["max_steps"] = int(os.getenv("MAX_STEPS", "105"))
         print("[System] Shared memory created for Unity mode (objects will be discovered dynamically)")
     elif perception_type == "mock":
         # Mock mode: use preset environment with predefined objects
@@ -158,6 +158,15 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
         print("[System] Using UnityPyAutoGUIPerception (pyautogui).")
     elif perception_type == "unity-camera":
         # Unity camera extraction package integration (Agent-controlled screenshots)
+        # Find and focus Meta XR Simulator window (same as unity mode)
+        print("\n[System] Attempting to find and focus Meta XR Simulator window...")
+        focus_success = find_and_focus_meta_xr_simulator()
+        
+        if not focus_success:
+            print("[System] Warning: Could not find Meta XR Simulator window.")
+            print("[System] The agent will continue, but Unity window may not be focused.")
+            print("[System] Make sure Meta XR Simulator is running for best results.")
+        
         unity_output_base_path = os.getenv("UNITY_OUTPUT_BASE_PATH")
         if not unity_output_base_path:
             raise ValueError("UNITY_OUTPUT_BASE_PATH environment variable is required for unity-camera perception")
