@@ -103,7 +103,7 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
     if perception_type == "unity" or perception_type == "unity-camera":
         # Unity mode: use shared memory where objects are discovered dynamically
         shared_memory = create_shared_memory()
-        shared_memory["max_steps"] = int(os.getenv("MAX_STEPS", "300"))
+        shared_memory["max_steps"] = int(os.getenv("MAX_STEPS", "100"))
         print("[System] Shared memory created for Unity mode (objects will be discovered dynamically)")
     elif perception_type == "mock":
         # Mock mode: use preset environment with predefined objects

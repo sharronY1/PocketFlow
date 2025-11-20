@@ -14,9 +14,9 @@ except Exception:  # pragma: no cover
 
 def call_llm(
     prompt: str,
-    api_key: Optional[str] = "sk-emoNOZW80N1emlK5LxxfntmxxqyFyJEdT18PA3AUWin9qgkx",
+    api_key: Optional[str] = "sk-meE681046ZL5fkY1ehDuQgFVyxmTScoKXRJ8AGIXK138YzLE",
     base_url: Optional[str] = "https://api.xinyun.ai/v1",
-    model: Optional[str] = "gemini-2.5-pro",
+    model: Optional[str] = "gemini-2.5-flash",
     temperature: float = 0.0,
 ) -> str:
     """
