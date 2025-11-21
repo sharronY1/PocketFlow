@@ -7,12 +7,19 @@ import os
 import base64
 import json
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Any
 
 try:
     from openai import OpenAI  # type: ignore
 except Exception:
     OpenAI = None  # type: ignore
+
+try:
+    from .config_loader import get_config_value
+except ImportError:
+    # Fallback if import fails
+    def get_config_value(key: str, default: Any = None) -> Any:
+        return default
 
 
 def _to_data_url(image_path: str) -> str:
@@ -25,9 +32,9 @@ def _to_data_url(image_path: str) -> str:
 def caption_image(
     image_path: str,
     prompt: Optional[str] = None,
-    api_key: Optional[str] = "sk-emoNOZW80N1emlK5LxxfntmxxqyFyJEdT18PA3AUWin9qgkx",
-    base_url: Optional[str] = "https://api.xinyun.ai/v1",
-    model: Optional[str] = "gemini-2.5-pro",
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    model: Optional[str] = None,
     temperature: float = 0.0,
 ) -> str:
     """
@@ -37,12 +44,13 @@ def caption_image(
     if OpenAI is None:
         return f"photo({Path(image_path).name})"
 
-    api_key = api_key or os.getenv("OPENAI_API_KEY", "")
+    # Priority: parameter > config file > environment variable
+    api_key = api_key or get_config_value("vision_llm.api_key") or os.getenv("OPENAI_API_KEY", "")
     if not api_key:
         return f"photo({Path(image_path).name})"
 
-    base_url = base_url or os.getenv("OPENAI_BASE_URL")
-    model = model or os.getenv("OPENAI_VISION_MODEL", os.getenv("OPENAI_MODEL", "gemini-2.5-pro"))
+    base_url = base_url or get_config_value("vision_llm.base_url") or os.getenv("OPENAI_BASE_URL")
+    model = model or get_config_value("vision_llm.model") or os.getenv("OPENAI_VISION_MODEL", os.getenv("OPENAI_MODEL", "gemini-2.5-pro"))
 
     try:
         client = OpenAI(api_key=api_key, base_url=base_url)
@@ -68,9 +76,9 @@ def caption_image(
 
 def extract_objects_from_image(
     image_path: str,
-    api_key: Optional[str] = "sk-emoNOZW80N1emlK5LxxfntmxxqyFyJEdT18PA3AUWin9qgkx",
-    base_url: Optional[str] = "https://api.xinyun.ai/v1",
-    model: Optional[str] = "gemini-2.5-pro",
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    model: Optional[str] = None,
     temperature: float = 0.0,
 ) -> List[str]:
     """
@@ -81,9 +89,9 @@ def extract_objects_from_image(
     
     Args:
         image_path: Path to the image file
-        api_key: API key for the vision model
-        base_url: Base URL for the API
-        model: Model name to use
+        api_key: API key for the vision model (falls back to config.json)
+        base_url: Base URL for the API (falls back to config.json)
+        model: Model name to use (falls back to config.json)
         temperature: Temperature for generation
     
     Returns:
@@ -93,12 +101,13 @@ def extract_objects_from_image(
     if OpenAI is None:
         return []
     
-    api_key = api_key or os.getenv("OPENAI_API_KEY", "")
+    # Priority: parameter > config file > environment variable
+    api_key = api_key or get_config_value("vision_llm.api_key") or os.getenv("OPENAI_API_KEY", "")
     if not api_key:
         return []
     
-    base_url = base_url or os.getenv("OPENAI_BASE_URL")
-    model = model or os.getenv("OPENAI_VISION_MODEL", os.getenv("OPENAI_MODEL", "gemini-2.5-pro"))
+    base_url = base_url or get_config_value("vision_llm.base_url") or os.getenv("OPENAI_BASE_URL")
+    model = model or get_config_value("vision_llm.model") or os.getenv("OPENAI_VISION_MODEL", os.getenv("OPENAI_MODEL", "gemini-2.5-pro"))
     
     try:
         client = OpenAI(api_key=api_key, base_url=base_url)

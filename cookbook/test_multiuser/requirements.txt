@@ -10,4 +10,4 @@ fastapi
 uvicorn
 pydantic
 requests
-
+pydirectinput

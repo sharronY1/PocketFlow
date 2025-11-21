@@ -6,6 +6,7 @@ import sys
 from utils import create_environment, create_shared_memory, create_memory
 from utils.perception_interface import create_perception, PerceptionInterface
 from utils.window_manager import find_and_focus_meta_xr_simulator
+from utils.config_loader import get_config_value, sync_unity_config
 from flow import create_agent_flow
 import time
 import argparse
@@ -90,26 +91,35 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
     Main program entry point (single agent)
     
     Args:
-        perception_type: Perception type ("mock", "unity", or "unity-camera")
+        perception_type: Perception type ("mock", "unity", "unity-camera", or "unity3d")
         agent_id: Unique agent identifier
     """
     print("\n" + "="*60)
     print("Multi-Agent XR Environment Exploration System")
     print("="*60)
     
+    # Sync Unity configuration file
+    print("\n[System] Syncing Unity configuration...")
+    sync_unity_config()
+    
+    # Read max_steps from config file
+    max_steps_default = get_config_value("max_steps", 105 if perception_type in ["unity", "unity-camera", "unity3d"] else 3)
+    
     # Create shared memory for Unity mode (dynamic object discovery)
     # For mock mode, still use create_environment with preset objects
     print("\n[System] Creating shared memory...")
-    if perception_type == "unity" or perception_type == "unity-camera":
+    if perception_type in ["unity", "unity-camera", "unity3d"]:
         # Unity mode: use shared memory where objects are discovered dynamically
         shared_memory = create_shared_memory()
-        shared_memory["max_steps"] = int(os.getenv("MAX_STEPS", "105"))
-        print("[System] Shared memory created for Unity mode (objects will be discovered dynamically)")
+        shared_memory["max_steps"] = int(os.getenv("MAX_STEPS", str(max_steps_default)))
+        print(f"[System] Shared memory created for {perception_type} mode (objects will be discovered dynamically)")
+        print(f"[System] Max steps: {shared_memory['max_steps']}")
     elif perception_type == "mock":
         # Mock mode: use preset environment with predefined objects
         shared_memory = create_environment(num_positions=10)
-        shared_memory["max_steps"] = int(os.getenv("MAX_STEPS", "3"))
+        shared_memory["max_steps"] = int(os.getenv("MAX_STEPS", str(max_steps_default)))
         print(f"[System] Mock environment created with {shared_memory['num_positions']} positions")
+        print(f"[System] Max steps: {shared_memory['max_steps']}")
         print("\n[System] Environment layout:")
         for pos in sorted(shared_memory["objects"].keys()):
             print(f"  Position {pos}: {shared_memory['objects'][pos]}")
@@ -167,9 +177,10 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
             print("[System] The agent will continue, but Unity window may not be focused.")
             print("[System] Make sure Meta XR Simulator is running for best results.")
         
-        unity_output_base_path = os.getenv("UNITY_OUTPUT_BASE_PATH")
+        # Priority: environment variable > config file
+        unity_output_base_path = os.getenv("UNITY_OUTPUT_BASE_PATH") or get_config_value("unity_output_base_path")
         if not unity_output_base_path:
-            raise ValueError("UNITY_OUTPUT_BASE_PATH environment variable is required for unity-camera perception")
+            raise ValueError("UNITY_OUTPUT_BASE_PATH is required (set in config.json or environment variable)")
         agent_request_dir = os.getenv("AGENT_REQUEST_DIR")  # Optional
         perception = create_perception(
             "unity-camera",
@@ -179,6 +190,24 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
             screenshot_timeout=float(os.getenv("SCREENSHOT_TIMEOUT", "5.0")),
         )
         print("[System] Using UnityCameraPerception (camera extraction package). Make sure Unity is running with autoScreenshotEnabled=false.")
+    elif perception_type == "unity3d":
+        # Simplified Unity3D perception mode (WSAD + Space only, no window focus required)
+        print("\n[System] Using unity3d mode for Unity3D (no window focus required)")
+        
+        # Priority: environment variable > config file
+        unity_output_base_path = get_config_value("unity_output_base_path") or os.getenv("UNITY_OUTPUT_BASE_PATH")
+        if not unity_output_base_path:
+            raise ValueError("UNITY_OUTPUT_BASE_PATH is required (set in config.json or environment variable)")
+        agent_request_dir = os.getenv("AGENT_REQUEST_DIR")  # Optional
+        perception = create_perception(
+            "unity3d",
+            unity_output_base_path=unity_output_base_path,
+            agent_request_dir=agent_request_dir,
+            # Default press duration 1.0s for clearer movement in unity3d mode
+            step_sleep_seconds=float(os.getenv("STEP_SLEEP", "2.0")),
+            screenshot_timeout=float(os.getenv("SCREENSHOT_TIMEOUT", "5.0")),
+        )
+        print("[System] Using Unity3DPerception (simplified action space: WSAD + Space). Make sure Unity is running.")
     else:
         raise ValueError(f"Unknown perception type: {perception_type}")
     
@@ -223,7 +252,7 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run a single exploration agent")
-    parser.add_argument("--perception", default=os.getenv("PERCEPTION", "unity"), choices=["mock", "unity", "unity-camera"], help="Perception type")
+    parser.add_argument("--perception", default=os.getenv("PERCEPTION", "unity"), choices=["mock", "unity", "unity-camera", "unity3d"], help="Perception type")
     parser.add_argument("--agent-id", default=os.getenv("AGENT_ID", "Agent"), help="Unique agent id")
     args = parser.parse_args()
     main(args.perception, args.agent_id)

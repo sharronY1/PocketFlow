@@ -10,7 +10,7 @@
     "durationSeconds": 10,
     "autoAttachToMainCamera": true,
     "targetCameraTag": "MainCamera",
-    "maxTrackedObjects": 31,
+    "maxTrackedObjects": 0,
     "screenshotSubfolder": "screenshots",
     "posesSubfolder": "poses",
     "intrinsicsSubfolder": "intrinsics",

@@ -15,11 +15,26 @@ import time
 import json
 from pathlib import Path
 import glob
+import platform
+
+IS_WINDOWS = platform.system() == "Windows"
 
 try:
     import pyautogui  # type: ignore
 except Exception:
     pyautogui = None
+
+try:
+    import pydirectinput  # type: ignore
+except Exception:
+    pydirectinput = None
+
+try:
+    from .config_loader import get_config_value
+except ImportError:
+    # Fallback if import fails
+    def get_config_value(key: str, default: Any = None) -> Any:
+        return default
 
 
 class PerceptionInterface(ABC):
@@ -309,7 +324,8 @@ class UnityPyAutoGUIPerception(PerceptionInterface):
         base_dir.mkdir(parents=True, exist_ok=True)
         self.screenshot_dir = base_dir
         # Optional centralized messaging server (FastAPI env_server)
-        self.messaging_base_url = (messaging_base_url or os.getenv("ENV_SERVER_URL") or "").rstrip("/")
+        # Priority: parameter > environment variable > config file
+        self.messaging_base_url = (messaging_base_url or os.getenv("ENV_SERVER_URL") or get_config_value("env_server_url") or "").rstrip("/")
 
     def _capture(self, agent_id: str) -> str:
         ts = time.strftime("%Y%m%d-%H%M%S")
@@ -395,6 +411,241 @@ class UnityPyAutoGUIPerception(PerceptionInterface):
         return data.get("messages", [])
 
 
+class Unity3DPerception(PerceptionInterface):
+    """
+    Perception implementation for Unity3D with simplified action space.
+    
+    This class communicates with Unity via file system (same as UnityCameraPerception):
+    - Writes screenshot request files to Unity's agent_requests directory
+    - Unity reads requests and captures screenshots with agent ID and timestamp in filename
+    - Reads the generated screenshot files from Unity's output directory
+    
+    Differences from unity-camera mode:
+    - Does NOT require Meta XR Simulator window focus
+    - Simplified action space (WSAD + Space for jump):
+      - "forward"    -> 'w'
+      - "backward"   -> 's'
+      - "move_left"  -> 'a'
+      - "move_right" -> 'd'
+      - "jump"       -> 'space'
+    """
+
+    def __init__(
+        self,
+        unity_output_base_path: str,
+        agent_request_dir: Optional[str] = None,
+        step_sleep_seconds: float = 0.3,
+        screenshot_timeout: float = 5.0,
+        messaging_base_url: Optional[str] = None,
+    ):
+        """
+        Args:
+            unity_output_base_path: Base path where Unity saves screenshots (e.g., "D:/output")
+            agent_request_dir: Directory for Agent screenshot requests (defaults to {unity_output_base_path}/agent_requests)
+            step_sleep_seconds: Sleep time after movement actions
+            screenshot_timeout: Maximum time to wait for screenshot to appear (seconds)
+            messaging_base_url: Optional centralized messaging server URL
+        """
+        # For unity3d mode we use keyboard-based control via pydirectinput on Windows only.
+        if not IS_WINDOWS:
+            raise RuntimeError("Unity3DPerception keyboard control is only supported on Windows.")
+        if pydirectinput is None:
+            raise RuntimeError("pydirectinput is not installed. Please `pip install pydirectinput` for unity3d mode.")
+        
+        self.unity_output_base_path = Path(unity_output_base_path)
+        self.step_sleep_seconds = step_sleep_seconds
+        self.screenshot_timeout = screenshot_timeout
+        self.agent_steps: Dict[str, int] = {}
+        
+        # Setup agent request directory (camera extraction requests)
+        if agent_request_dir:
+            self.agent_request_dir = Path(agent_request_dir)
+        else:
+            self.agent_request_dir = self.unity_output_base_path / "agent_requests"
+        self.agent_request_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Optional centralized messaging server
+        # Priority: parameter > environment variable > config file
+        self.messaging_base_url = (messaging_base_url or os.getenv("ENV_SERVER_URL") or get_config_value("env_server_url") or "").rstrip("/")
+        
+        # Track last screenshot request time to detect new screenshots
+        self._last_request_time: Dict[str, float] = {}
+
+    def _request_screenshot(self, agent_id: str) -> str:
+        """Request screenshot from Unity and return the expected screenshot path"""
+        timestamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+        timestamp_ms = f"{timestamp}_{int(time.time()*1000)%1000:03d}"
+        
+        # Create request JSON
+        request_data = {
+            "agent_id": agent_id,
+            "timestamp": timestamp_ms
+        }
+        
+        # Write request file
+        request_filename = f"{agent_id}_{timestamp_ms}.request"
+        request_path = self.agent_request_dir / request_filename
+        
+        try:
+            with open(request_path, 'w') as f:
+                json.dump(request_data, f)
+            self._last_request_time[agent_id] = time.time()
+            print(f"[Unity3DPerception] Screenshot request sent: {request_path}")
+        except Exception as e:
+            raise RuntimeError(f"Failed to write screenshot request: {e}")
+        
+        return timestamp_ms
+
+    def _find_latest_screenshot(self, agent_id: str, timestamp: str, timeout: float) -> Optional[str]:
+        """Find the latest screenshot matching agent_id and timestamp"""
+        start_time = time.time()
+        
+        # Search in Unity output directory structure
+        # Simplified path: {outputBasePath}/screenshots/{CameraName}/
+        # Filename format: {agent_id}_{timestamp}_{ProjectName}_{CameraName}_screenshot_frame_*.png
+        
+        # Use recursive search to find all matching files, then filter for "Main Camera" folder
+        search_patterns = [
+            # Pattern 1: Recursively search in screenshots folder
+            str(self.unity_output_base_path / "screenshots" / "**" / f"{agent_id}_{timestamp}*.png"),
+            # Pattern 2: Timestamp folder search (if using ByTimestamp mode)
+            str(self.unity_output_base_path / "screenshots" / "**" / timestamp / f"{agent_id}_{timestamp}*.png"),
+            # Pattern 3: Legacy path support (with project subfolder)
+            str(self.unity_output_base_path / "**" / "*_screenshots" / "**" / f"{agent_id}_{timestamp}*.png"),
+            # Pattern 4: Fallback - any file with agent_id and timestamp
+            str(self.unity_output_base_path / "**" / f"{agent_id}_{timestamp}*.png"),
+        ]
+        
+        while time.time() - start_time < timeout:
+            for pattern in search_patterns:
+                matches = glob.glob(pattern, recursive=True)
+                
+                if matches:
+                    # Filter: only match files in "Main Camera" folder (case-insensitive, but preserve space)
+                    main_camera_matches = [
+                        m for m in matches 
+                        if any("maincamera" in part.lower() for part in Path(m).parts)
+                    ]
+                    
+                    if main_camera_matches:
+                        # Return the most recently modified file
+                        latest = max(main_camera_matches, key=lambda p: Path(p).stat().st_mtime)
+                        # Check if file was created after our request
+                        if Path(latest).stat().st_mtime >= self._last_request_time.get(agent_id, 0):
+                            return latest
+            
+            time.sleep(0.1)  # Check every 100ms
+        
+        return None
+
+    def get_visible_objects(self, agent_id: str, position: Any) -> List[str]:
+        """Request screenshot from Unity and return path"""
+        # Request screenshot
+        timestamp = self._request_screenshot(agent_id)
+        
+        # Wait for screenshot to be created
+        screenshot_path = self._find_latest_screenshot(agent_id, timestamp, self.screenshot_timeout)
+        
+        if screenshot_path:
+            print(f"[Unity3DPerception] Screenshot received: {screenshot_path}")
+            return [f"screenshot:{screenshot_path}"]
+        else:
+            print(f"[Unity3DPerception] Warning: Screenshot not found for agent {agent_id}, timestamp {timestamp}")
+            # Return empty list or fallback behavior
+            return []
+
+    def get_agent_state(self, agent_id: str) -> Dict[str, Any]:
+        return {
+            "position": self.agent_steps.get(agent_id, 0),
+            "rotation": None,
+            "velocity": None,
+        }
+
+    def execute_action(self, agent_id: str, action: str, params: Optional[Dict] = None) -> Dict[str, Any]:
+        """Execute movement action (unity3d mode) via keyboard simulation.
+        
+        Priority:
+        1) pydirectinput (Windows-friendly for games)
+        2) SendInput fallback (Win32)
+        3) pyautogui (generic)
+        """
+        action_str = str(action).strip().lower()
+        print(f"[Unity3DPerception] Agent '{agent_id}' executing action via keyboard: {action_str}")
+
+        self._perform_movement_action(action_str)
+
+        # Update logical step counter
+        self.agent_steps[agent_id] = self.agent_steps.get(agent_id, 0) + 1
+        
+        return {
+            "position": self.agent_steps[agent_id],
+            "rotation": None,
+            "velocity": None,
+            "visible_objects": [],  # Will be updated in next PerceptionNode
+        }
+
+    def _perform_movement_action(self, action: str) -> None:
+        """Simplified movement action handler - only WSAD + Space (with console logging).
+        
+        - On Windows: uses pydirectinput
+        """
+        mapping: Dict[str, str] = {
+            "forward": "w",
+            "backward": "s",
+            "move_left": "a",
+            "move_right": "d",
+            "jump": "space",
+        }
+        key = mapping.get(action)
+        if not key:
+            print(f"[Unity3DPerception] Warning: Unknown action '{action}', skipping.")
+            return
+
+        # At this point we already ensured we are on Windows and pydirectinput is available.
+        print(f"[Unity3DPerception] (pydirectinput) Pressing key '{key}' for action '{action}' "
+              f"(sleep={self.step_sleep_seconds}s).")
+        try:
+            pydirectinput.keyDown(key)
+            time.sleep(self.step_sleep_seconds)
+        except Exception as e:
+            print(f"[Unity3DPerception] Error while executing action '{action}' with pydirectinput: {e}")
+        finally:
+            try:
+                pydirectinput.keyUp(key)
+            except Exception as e:
+                print(f"[Unity3DPerception] Error while releasing key '{key}' with pydirectinput: {e}")
+
+    def get_environment_info(self) -> Dict[str, Any]:
+        return {
+            "type": "unity3d",
+            "unity_output_base_path": str(self.unity_output_base_path),
+            "agent_request_dir": str(self.agent_request_dir),
+        }
+
+    # Messaging via centralized server when configured
+    def send_message(self, sender: str, recipient: str, message: str) -> None:
+        if not self.messaging_base_url:
+            raise NotImplementedError("Messaging server not configured. Set ENV_SERVER_URL or pass messaging_base_url.")
+        resp = requests.post(
+            f"{self.messaging_base_url}/messages/send",
+            json={"sender": sender, "recipient": recipient, "message": message},
+            timeout=10
+        )
+        resp.raise_for_status()
+
+    def poll_messages(self, agent_id: str) -> List[Dict[str, Any]]:
+        if not self.messaging_base_url:
+            raise NotImplementedError("Messaging server not configured. Set ENV_SERVER_URL or pass messaging_base_url.")
+        resp = requests.post(
+            f"{self.messaging_base_url}/messages/poll",
+            json={"agent_id": agent_id},
+            timeout=10
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("messages", [])
+
+
 class UnityCameraPerception(PerceptionInterface):
     """
     Perception implementation that uses Unity camera extraction package for Agent-controlled screenshots.
@@ -451,7 +702,8 @@ class UnityCameraPerception(PerceptionInterface):
         self.agent_request_dir.mkdir(parents=True, exist_ok=True)
         
         # Optional centralized messaging server
-        self.messaging_base_url = (messaging_base_url or os.getenv("ENV_SERVER_URL") or "").rstrip("/")
+        # Priority: parameter > environment variable > config file
+        self.messaging_base_url = (messaging_base_url or os.getenv("ENV_SERVER_URL") or get_config_value("env_server_url") or "").rstrip("/")
         
         # Track last screenshot request time to detect new screenshots
         self._last_request_time: Dict[str, float] = {}
@@ -622,7 +874,7 @@ def create_perception(perception_type: str = "mock", **kwargs) -> PerceptionInte
     Factory function for creating perception instances
     
     Args:
-        perception_type: Perception type ("mock" or "xr")
+        perception_type: Perception type ("mock", "xr", "unity", "unity-camera", or "unity3d")
         **kwargs: Arguments passed to perception class constructor
     
     Returns:
@@ -634,6 +886,9 @@ def create_perception(perception_type: str = "mock", **kwargs) -> PerceptionInte
         
         # Create XR perception
         perception = create_perception("xr", xr_client=client, config={"host": "localhost"})
+        
+        # Create Unity3D perception (simplified action space)
+        perception = create_perception("unity3d", unity_output_base_path="/path/to/output")
     """
     if perception_type == "mock":
         return MockPerception(kwargs.get("env"))
@@ -648,6 +903,18 @@ def create_perception(perception_type: str = "mock", **kwargs) -> PerceptionInte
             capture_region=kwargs.get("capture_region"),
             keymap=kwargs.get("keymap"),
             step_sleep_seconds=kwargs.get("step_sleep_seconds", 0.3),
+            messaging_base_url=kwargs.get("messaging_base_url") or os.getenv("ENV_SERVER_URL"),
+        )
+    elif perception_type == "unity3d":
+        # New simplified Unity3D perception mode (WSAD + Space only, no window focus required)
+        unity_output_base_path = kwargs.get("unity_output_base_path") or os.getenv("UNITY_OUTPUT_BASE_PATH")
+        if not unity_output_base_path:
+            raise ValueError("Unity3DPerception requires 'unity_output_base_path' or UNITY_OUTPUT_BASE_PATH")
+        return Unity3DPerception(
+            unity_output_base_path=unity_output_base_path,
+            agent_request_dir=kwargs.get("agent_request_dir") or os.getenv("AGENT_REQUEST_DIR"),
+            step_sleep_seconds=float(kwargs.get("step_sleep_seconds", os.getenv("STEP_SLEEP", "0.3"))),
+            screenshot_timeout=float(kwargs.get("screenshot_timeout", os.getenv("SCREENSHOT_TIMEOUT", "5.0"))),
             messaging_base_url=kwargs.get("messaging_base_url") or os.getenv("ENV_SERVER_URL"),
         )
     elif perception_type == "unity-camera":

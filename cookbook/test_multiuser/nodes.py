@@ -138,7 +138,8 @@ class DecisionNode(Node):
             "retrieved_memories": shared["retrieved_memories"],
             "other_agent_messages": shared["other_agent_messages"],
             "explored_objects": list(shared["explored_objects"]),
-            "step_count": shared["step_count"]
+            "step_count": shared["step_count"],
+            "perception_type": shared.get("perception", {}).get_environment_info().get("type", "unknown")
         }
         return context
     
@@ -164,6 +165,45 @@ class DecisionNode(Node):
             for msg in context["other_agent_messages"]
         ]) if context["other_agent_messages"] else "No messages from other agents"
         
+        # Determine available actions based on perception type
+        perception_type = context.get("perception_type", "unknown")
+        if perception_type == "unity3d":
+            # Simplified action space for unity3d mode (WSAD + Space)
+            available_actions = [
+                "- forward: Move forward (key 'w')",
+                "- backward: Move backward (key 's')",
+                "- move_left: Strafe left (key 'a')",
+                "- move_right: Strafe right (key 'd')",
+                "- jump: Jump (key 'space')",
+            ]
+            action_list = "forward, backward, move_left, move_right, jump"
+            valid_actions = ["forward", "backward", "move_left", "move_right", "jump"]
+        else:
+            # Full action space for other modes
+            available_actions = [
+                "- forward: Move to next position",
+                "- backward: Move to previous position",
+                "- move_left: Strafe left (key 'a')",
+                "- move_right: Strafe right (key 'd')",
+                "- move_up: Move up (key 'r')",
+                "- move_down: Move down (key 'f')",
+                "- look_left: Turn head left (left arrow)",
+                "- look_right: Turn head right (right arrow)",
+                "- look_up: Look up (up arrow)",
+                "- look_down: Look down (down arrow)",
+                "- tilt_left: Roll head left (key 'q')",
+                "- tilt_right: Roll head right (key 'e')",
+            ]
+            action_list = "forward, backward, move_left, move_right, move_up, move_down, look_left, look_right, look_up, look_down, tilt_left, tilt_right"
+            valid_actions = [
+                "forward", "backward",
+                "move_left", "move_right", "move_up", "move_down",
+                "look_left", "look_right", "look_up", "look_down",
+                "tilt_left", "tilt_right",
+            ]
+        
+        actions_text = "\n".join(available_actions)
+        
         prompt = f"""You are {context['agent_id']}, an intelligent agent exploring an XR environment.
 
 Current state:
@@ -186,24 +226,13 @@ Decision strategy:
 - Share important discoveries with other agents
 
 Available actions:
-- forward: Move to next position
-- backward: Move to previous position
-- move_left: Strafe left (key 'a')
-- move_right: Strafe right (key 'd')
-- move_up: Move up (key 'r')
-- move_down: Move down (key 'f')
-- look_left: Turn head left (left arrow)
-- look_right: Turn head right (right arrow)
-- look_up: Look up (up arrow)
-- look_down: Look down (down arrow)
-- tilt_left: Roll head left (key 'q')
-- tilt_right: Roll head right (key 'e')
+{actions_text}
 
 Please decide the next action based on the above information, output in YAML format:
 
 ```yaml
 thinking: Your thought process (MUST consider messages from other agents if any, and whether to explore new areas)
-action: one of [forward, backward, move_left, move_right, move_up, move_down, look_left, look_right, look_up, look_down, tilt_left, tilt_right]
+action: one of [{action_list}]
 reason: Reason for choosing this action (mention other agents' messages if they influenced your decision)
 message_to_others: Information to share with other agents (optional)
 ```
@@ -274,12 +303,7 @@ message_to_others: Information to share with other agents (optional)
                 raise ValueError("LLM response is not a dictionary")
             if "action" not in result:
                 raise ValueError("Missing 'action' field in LLM response")
-            if result["action"] not in [
-                "forward", "backward",
-                "move_left", "move_right", "move_up", "move_down",
-                "look_left", "look_right", "look_up", "look_down",
-                "tilt_left", "tilt_right",
-            ]:
+            if result["action"] not in valid_actions:
                 raise ValueError(f"Invalid action: {result['action']}")
             if "reason" not in result:
                 result["reason"] = "No reason provided"
@@ -293,8 +317,7 @@ message_to_others: Information to share with other agents (optional)
             action_match = re.search(r'action:\s*(\w+)', response, re.IGNORECASE)
             if action_match:
                 action = action_match.group(1).lower()
-                if action in ["forward", "backward", "move_left", "move_right", "move_up", "move_down",
-                             "look_left", "look_right", "look_up", "look_down", "tilt_left", "tilt_right"]:
+                if action in valid_actions:
                     result = {
                         "thinking": "YAML parsing failed, extracted action from text",
                         "action": action,
@@ -347,11 +370,16 @@ class ExecutionNode(Node):
     
     def exec(self, prep_res):
         perception, agent_id, action = prep_res
-        
+
+        # Log action execution for debugging (visible in Python console)
+        print(f"[ExecutionNode] Agent '{agent_id}' executing action: {action}")
+
         # Use perception interface to execute action
         # Returns new state (including position, visible objects, etc.)
         new_state = perception.execute_action(agent_id, action)
-        
+
+        print(f"[ExecutionNode] Agent '{agent_id}' new state after action '{action}': position={new_state.get('position')}")
+
         return new_state
     
     def post(self, shared, prep_res, exec_res):

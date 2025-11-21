@@ -16,6 +16,11 @@ from .perception_interface import (
     XRPerception,
     create_perception
 )
+from .config_loader import (
+    load_config,
+    get_config_value,
+    sync_unity_config
+)
 
 __all__ = [
     'call_llm',
@@ -32,5 +37,8 @@ __all__ = [
     'MockPerception',
     'XRPerception',
     'create_perception',
+    'load_config',
+    'get_config_value',
+    'sync_unity_config',
 ]
 
