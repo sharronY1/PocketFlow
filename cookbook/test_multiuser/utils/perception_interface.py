@@ -422,12 +422,11 @@ class Unity3DPerception(PerceptionInterface):
     
     Differences from unity-camera mode:
     - Does NOT require Meta XR Simulator window focus
-    - Simplified action space (WSAD + Space for jump):
+    - Simplified action space (WSAD only, no jump):
       - "forward"    -> 'w'
       - "backward"   -> 's'
       - "move_left"  -> 'a'
       - "move_right" -> 'd'
-      - "jump"       -> 'space'
     """
 
     def __init__(
@@ -585,7 +584,7 @@ class Unity3DPerception(PerceptionInterface):
         }
 
     def _perform_movement_action(self, action: str) -> None:
-        """Simplified movement action handler - only WSAD + Space (with console logging).
+        """Simplified movement action handler - only WSAD (with console logging).
         
         - On Windows: uses pydirectinput
         """
@@ -594,7 +593,6 @@ class Unity3DPerception(PerceptionInterface):
             "backward": "s",
             "move_left": "a",
             "move_right": "d",
-            "jump": "space",
         }
         key = mapping.get(action)
         if not key:

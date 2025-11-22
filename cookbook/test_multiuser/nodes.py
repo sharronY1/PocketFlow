@@ -174,10 +174,9 @@ class DecisionNode(Node):
                 "- backward: Move backward (key 's')",
                 "- move_left: Strafe left (key 'a')",
                 "- move_right: Strafe right (key 'd')",
-                "- jump: Jump (key 'space')",
             ]
-            action_list = "forward, backward, move_left, move_right, jump"
-            valid_actions = ["forward", "backward", "move_left", "move_right", "jump"]
+            action_list = "forward, backward, move_left, move_right"
+            valid_actions = ["forward", "backward", "move_left", "move_right",]
         else:
             # Full action space for other modes
             available_actions = [
