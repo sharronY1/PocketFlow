@@ -523,7 +523,7 @@ class Unity3DPerception(PerceptionInterface):
                     # Filter: only match files in "Main Camera" folder (case-insensitive, but preserve space)
                     main_camera_matches = [
                         m for m in matches 
-                        if any("maincamera" in part.lower() for part in Path(m).parts)
+                        if any("main_camera" in part.lower() for part in Path(m).parts)
                     ]
                     
                     if main_camera_matches:
