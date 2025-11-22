@@ -204,7 +204,7 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
             unity_output_base_path=unity_output_base_path,
             agent_request_dir=agent_request_dir,
             # Default press duration 1.0s for clearer movement in unity3d mode
-            step_sleep_seconds=float(os.getenv("STEP_SLEEP", "2.0")),
+            step_sleep_seconds=float(os.getenv("STEP_SLEEP", "1")),
             screenshot_timeout=float(os.getenv("SCREENSHOT_TIMEOUT", "5.0")),
         )
         print("[System] Using Unity3DPerception (simplified action space: WSAD + Space). Make sure Unity is running.")
