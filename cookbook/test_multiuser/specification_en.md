@@ -43,12 +43,6 @@ The mailbox system ensures each agent has their own message queue:
 ## 3. Perception Interface Abstraction Layer
 
 The system uses a `PerceptionInterface` abstraction layer to support different perception implementations:
-
-- **MockPerception**: Simulated environment (for development and testing)
-- **UnityPyAutoGUIPerception**: Interacts with Unity game window via pyautogui (screenshots and keyboard input)
-- **UnityCameraPerception**: Unity camera extraction package integration (Agent-controlled screenshots)
-- **XRPerception**: Template for real XR application interface (to be implemented)
-
 The perception interface provides:
 - `get_visible_objects(agent_id, position)`: Get visible objects at current position
 - `get_agent_state(agent_id)`: Get agent's current state (position, rotation, etc.)
