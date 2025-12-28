@@ -30,6 +30,7 @@ class PerceptionNode(Node):
     
     def prep(self, shared):
         # Get perception interface from shared store
+        # agent_share
         perception = shared["perception"]
         agent_id = shared["agent_id"]
         position = shared["position"]
@@ -41,6 +42,7 @@ class PerceptionNode(Node):
         
         # Use perception interface to get visible objects
         # Note: Thread safety is handled by the perception implementation itself
+        # ask for screenshot and return the path
         visible = perception.get_visible_objects(agent_id, position)
         
         return visible
@@ -48,7 +50,7 @@ class PerceptionNode(Node):
     def post(self, shared, prep_res, exec_res):
         shared["visible_objects"] = exec_res
         # If unity screenshot path is present, generate a caption and extract objects
-        # Example of exec_res: ["screenshot:E:/.../img.png"] or ["chair","table"] for mock
+        # Example of exec_res: ["screenshot:E:/.../img.png"]
         caption = None
         if exec_res and isinstance(exec_res[0], str) and exec_res[0].startswith("screenshot:"):
             image_path = exec_res[0].split("screenshot:", 1)[1]

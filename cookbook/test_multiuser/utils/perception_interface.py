@@ -18,7 +18,7 @@ import glob
 import platform
 
 IS_WINDOWS = platform.system() == "Windows"
-BOUNDARY_LIMIT = 15.0
+# BOUNDARY_LIMIT is now loaded from config.json below
 
 
 def _find_latest_pose_csv(base_path: Path) -> Optional[Path]:
@@ -108,6 +108,13 @@ except ImportError:
     # Fallback if import fails
     def get_config_value(key: str, default: Any = None) -> Any:
         return default
+
+# Load BOUNDARY_LIMIT from config.json, default to 15.0
+try:
+    BOUNDARY_LIMIT = float(get_config_value("boundary_limit", 15.0))
+except Exception:
+    # Fallback if config loading fails
+    BOUNDARY_LIMIT = 15.0
 
 
 class PerceptionInterface(ABC):
@@ -652,19 +659,20 @@ class Unity3DPerception(PerceptionInterface):
         action_str = str(action).strip().lower()
         print(f"[Unity3DPerception] Agent '{agent_id}' executing action via keyboard: {action_str}")
 
-        if self._is_out_of_bounds(agent_id):
+        # Check boundary but don't block movement - just warn if out of bounds
+        is_out_of_bounds = self._is_out_of_bounds(agent_id)
+        if is_out_of_bounds:
+            # Still warn but continue execution
             pose = self.latest_pose.get(agent_id)
-            print(f"[Unity3DPerception] Movement skipped for '{agent_id}' because boundary {BOUNDARY_LIMIT}m was reached.")
-            return {
-                "position": pose or self.agent_steps.get(agent_id, 0),
-                "world_position": pose,
-                "rotation": None,
-                "velocity": None,
-                "visible_objects": [],
-                "movement_skipped": True,
-                "boundary_info": self.boundary_state.get(agent_id),
-            }
+            boundary_info = self.boundary_state.get(agent_id, {})
+            deltas = boundary_info.get("deltas", {})
+            print(
+                f"[Unity3DPerception] WARNING: Agent '{agent_id}' is beyond boundary {BOUNDARY_LIMIT}m "
+                f"(Δx={deltas.get('x', 0):.2f}, Δy={deltas.get('y', 0):.2f}, Δz={deltas.get('z', 0):.2f}), "
+                f"but movement will still be executed."
+            )
 
+        # Always execute the movement action regardless of boundary
         self._perform_movement_action(action_str)
 
         # Update logical step counter
@@ -949,19 +957,20 @@ class UnityCameraPerception(PerceptionInterface):
 
     def execute_action(self, agent_id: str, action: str, params: Optional[Dict] = None) -> Dict[str, Any]:
         """Execute movement action using pyautogui"""
-        if self._is_out_of_bounds(agent_id):
+        # Check boundary but don't block movement - just warn if out of bounds
+        is_out_of_bounds = self._is_out_of_bounds(agent_id)
+        if is_out_of_bounds:
+            # Still warn but continue execution
             pose = self.latest_pose.get(agent_id)
-            print(f"[UnityCameraPerception] Movement skipped for '{agent_id}' because boundary {BOUNDARY_LIMIT}m was reached.")
-            return {
-                "position": pose or self.agent_steps.get(agent_id, 0),
-                "world_position": pose,
-                "rotation": None,
-                "velocity": None,
-                "visible_objects": [],
-                "movement_skipped": True,
-                "boundary_info": self.boundary_state.get(agent_id),
-            }
+            boundary_info = self.boundary_state.get(agent_id, {})
+            deltas = boundary_info.get("deltas", {})
+            print(
+                f"[UnityCameraPerception] WARNING: Agent '{agent_id}' is beyond boundary {BOUNDARY_LIMIT}m "
+                f"(Δx={deltas.get('x', 0):.2f}, Δy={deltas.get('y', 0):.2f}, Δz={deltas.get('z', 0):.2f}), "
+                f"but movement will still be executed."
+            )
 
+        # Always execute the movement action regardless of boundary
         self._perform_movement_action(action)
         
         # Update logical step counter

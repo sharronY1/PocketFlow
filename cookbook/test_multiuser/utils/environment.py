@@ -9,9 +9,6 @@ def create_shared_memory() -> Dict[str, Any]:
     """
     Create shared memory structure for all agents to access and update
     
-    This replaces the preset objects in global_env. Objects are dynamically
-    discovered by agents through their observations (e.g., analyzing Unity screenshots).
-    
     Returns:
         Shared memory dictionary with the following structure:
         - objects: Set of discovered objects (only increases, never decreases)
