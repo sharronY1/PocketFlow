@@ -8,7 +8,6 @@ from utils import (
     search_memory,
     add_to_memory,
 )
-from utils.perception_interface import BOUNDARY_LIMIT
 from utils.vision import caption_image, extract_objects_from_image
 import time
 from utils.perception_interface import PerceptionInterface
@@ -62,35 +61,6 @@ class PerceptionNode(Node):
                 shared["visible_objects"] = extracted_objects
         
         shared["visible_caption"] = caption or ", ".join(map(str, shared["visible_objects"]))
-        # Sync latest world position from Unity pose logs (unity-camera / unity3d modes)
-        perception = shared.get("perception")
-        agent_id = shared.get("agent_id")
-        if perception and hasattr(perception, "get_latest_world_pose") and agent_id:
-            latest_pose = perception.get_latest_world_pose(agent_id)
-            if latest_pose:
-                if "initial_world_position" not in shared:
-                    shared["initial_world_position"] = latest_pose
-                shared["position"] = latest_pose
-
-                init_pose = shared.get("initial_world_position")
-                if isinstance(init_pose, dict):
-                    deltas = {axis: latest_pose[axis] - init_pose[axis] for axis in ("x", "y", "z")}
-                    boundary_hit = any(abs(v) >= BOUNDARY_LIMIT for v in deltas.values())
-                    shared["boundary_info"] = {
-                        "out_of_bounds": boundary_hit,
-                        "deltas": deltas,
-                        "hit_axes": [axis for axis, v in deltas.items() if abs(v) >= BOUNDARY_LIMIT],
-                        "limit": BOUNDARY_LIMIT,
-                    }
-                    if boundary_hit and not shared.get("boundary_warned"):
-                        print(
-                            f"[{agent_id}] 警告：移动达到限制（|Δ|≥{BOUNDARY_LIMIT}）。"
-                            f" Δx={deltas['x']:.2f}, Δy={deltas['y']:.2f}, Δz={deltas['z']:.2f}"
-                        )
-                        shared["boundary_warned"] = True
-                    elif not boundary_hit:
-                        shared["boundary_warned"] = False
-
         print(f"[{shared['agent_id']}] Position {shared['position']}: sees {shared['visible_objects']}")
         if caption:
             print(f"[{shared['agent_id']}] Caption: {shared['visible_caption']}")
@@ -171,8 +141,7 @@ class DecisionNode(Node):
             "other_agent_messages": shared["other_agent_messages"],
             "explored_objects": list(shared["explored_objects"]),
             "step_count": shared["step_count"],
-            "perception_type": shared.get("perception", {}).get_environment_info().get("type", "unknown"),
-            "boundary_info": shared.get("boundary_info"),
+            "perception_type": shared.get("perception", {}).get_environment_info().get("type", "unknown")
         }
         return context
     
@@ -234,16 +203,6 @@ class DecisionNode(Node):
                 "tilt_left", "tilt_right",
             ]
         
-        boundary_text = ""
-        boundary_info = context.get("boundary_info") or {}
-        if boundary_info.get("out_of_bounds"):
-            deltas = boundary_info.get("deltas", {})
-            hit_axes = boundary_info.get("hit_axes", [])
-            boundary_text = (
-                f"\nIMPORTANT: You hit movement boundary (limit {boundary_info.get('limit', BOUNDARY_LIMIT)}). "
-                f"Hit axes: {hit_axes}. Deltas: {deltas}. You MUST pick an action that moves back toward origin to reduce these deltas."
-            )
-
         actions_text = "\n".join(available_actions)
         
         prompt = f"""You are {context['agent_id']}, an intelligent agent exploring an XR environment.
@@ -253,7 +212,6 @@ Current state:
 - Visible objects: {context['visible_objects']}
 - Already explored objects: {context['explored_objects']}
 - Steps taken: {context['step_count']}
-{boundary_text}
 
 Historical memories (relevant):
 {memories_text}
@@ -426,21 +384,14 @@ class ExecutionNode(Node):
         return new_state
     
     def post(self, shared, prep_res, exec_res):
-        # Update position (prefer world coordinates when available)
-        new_position = exec_res.get("world_position", exec_res.get("position"))
-        if new_position is not None:
-            shared["position"] = new_position
-
-        # Only count a step when movement actually executed
-        if not exec_res.get("movement_skipped"):
-            shared["step_count"] += 1
+        # Update position
+        shared["position"] = exec_res["position"]
+        shared["step_count"] += 1
         
         # Update agent position in shared memory
         if shared.get("shared_memory"):
             with env_lock:
-                shared["shared_memory"]["agent_positions"][shared["agent_id"]] = new_position
-                if "boundary_info" in exec_res:
-                    shared["shared_memory"]["boundary_info"] = exec_res["boundary_info"]
+                shared["shared_memory"]["agent_positions"][shared["agent_id"]] = exec_res["position"]
         
         # Note: visible_objects will be updated in the next PerceptionNode
         # ExecutionNode only updates position, not perception
