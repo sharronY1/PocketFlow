@@ -17,7 +17,6 @@ namespace CameraExtraction
 	public class MultiCameraExtractor : MonoBehaviour
 	{
 		public bool includeMainCamera = true;
-		public float rescanIntervalSeconds = 1.0f;
 		private float rescanTimer;
 		private float globalScreenshotTimer;  // Global timer for synchronized screenshots
 		private bool isCapturing; // prevent maintenance during capture
@@ -106,7 +105,7 @@ namespace CameraExtraction
 
 			// 3) Only maintain when not capturing in this frame (auto mode only)
 			rescanTimer += Time.deltaTime;
-			if (!isCapturing && rescanTimer >= rescanIntervalSeconds)
+			if (!isCapturing && rescanTimer >= config.screenshotIntervalSeconds)
 			{
 				rescanTimer = 0f;
 				MaintainTrackedHosts();

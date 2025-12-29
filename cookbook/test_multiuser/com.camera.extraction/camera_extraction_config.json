@@ -15,7 +15,7 @@
     "intrinsicsSubfolder": "intrinsics",
     "reorientCameras": true,
     "screenshotOrganizationMode": "ByCamera",
-    "useUniformFOV": false,
+    "useUniformFOV": true,
     "uniformFOV": 60.0,
     "screenshotWidth": 512,
     "screenshotHeight": 512,
