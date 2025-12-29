@@ -246,61 +246,7 @@ message_to_others: Information to share with other agents (optional)
         
         # Parse YAML with improved error handling
         try:
-            # Try to extract YAML from code block
-            if "```yaml" in response:
-                yaml_str = response.split("```yaml")[1].split("```")[0].strip()
-            elif "```" in response:
-                # Fallback: try to extract from any code block
-                parts = response.split("```")
-                if len(parts) >= 2:
-                    yaml_str = parts[1].strip()
-                    if yaml_str.startswith("yaml"):
-                        yaml_str = yaml_str[4:].strip()
-                else:
-                    yaml_str = response.strip()
-            else:
-                # No code block, assume entire response is YAML
-                yaml_str = response.strip()
-            
-            # Clean up common YAML issues:
-            # Fix problematic single quotes in values (like 'screen', 'cursor' in reason field)
-            lines = yaml_str.split('\n')
-            cleaned_lines = []
-            for line in lines:
-                # If line contains a colon (key-value pair)
-                if ':' in line and not line.strip().startswith('#'):
-                    parts = line.split(':', 1)
-                    if len(parts) == 2:
-                        key, value = parts
-                        value = value.strip()
-                        
-                        # If value is already properly quoted, leave it alone
-                        if (value.startswith('"') and value.endswith('"')) or \
-                           (value.startswith("'") and value.endswith("'") and value.count("'") == 2):
-                            cleaned_lines.append(line)
-                            continue
-                        
-                        # If value contains problematic patterns (like 'word1', 'word2')
-                        # wrap entire value in double quotes and escape internal quotes
-                        if "'" in value:
-                            # Escape any existing double quotes
-                            value = value.replace('"', '\\"')
-                            # Remove or escape single quotes (YAML prefers double quotes for strings with special chars)
-                            value = value.replace("'", "")
-                            # Wrap in double quotes
-                            value = '"' + value + '"'
-                        elif ':' in value or (',' in value and not value.startswith('[')):
-                            # Values with colons or commas should be quoted
-                            value = '"' + value.replace('"', '\\"') + '"'
-                        
-                        cleaned_lines.append(key.strip() + ': ' + value)
-                    else:
-                        cleaned_lines.append(line)
-                else:
-                    cleaned_lines.append(line)
-            yaml_str = '\n'.join(cleaned_lines)
-            
-            result = yaml.safe_load(yaml_str)
+            result = parse_yaml_from_llm_response(response)
             
             # Validate required fields
             if not isinstance(result, dict):
@@ -507,3 +453,79 @@ class UpdateMemoryNode(Node):
         
         return "continue"
 
+
+
+
+def parse_yaml_from_llm_response(response: str) -> dict:
+    """
+    Parse YAML from LLM response with improved error handling.
+    
+    Extracts YAML from code blocks, cleans up common formatting issues,
+    and returns a parsed dictionary.
+    
+    Args:
+        response: Raw LLM response string that may contain YAML in code blocks
+        
+    Returns:
+        Parsed YAML as a dictionary
+        
+    Raises:
+        ValueError: If YAML cannot be parsed or is invalid
+        yaml.YAMLError: If YAML parsing fails
+    """
+    # Try to extract YAML from code block
+    if "```yaml" in response:
+        yaml_str = response.split("```yaml")[1].split("```")[0].strip()
+    elif "```" in response:
+        # Fallback: try to extract from any code block
+        parts = response.split("```")
+        if len(parts) >= 2:
+            yaml_str = parts[1].strip()
+            if yaml_str.startswith("yaml"):
+                yaml_str = yaml_str[4:].strip()
+        else:
+            yaml_str = response.strip()
+    else:
+        # No code block, assume entire response is YAML
+        yaml_str = response.strip()
+    
+    # Clean up common YAML issues:
+    # Fix problematic single quotes in values (like 'screen', 'cursor' in reason field)
+    lines = yaml_str.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        # If line contains a colon (key-value pair)
+        if ':' in line and not line.strip().startswith('#'):
+            parts = line.split(':', 1)
+            if len(parts) == 2:
+                key, value = parts
+                value = value.strip()
+                
+                # If value is already properly quoted, leave it alone
+                if (value.startswith('"') and value.endswith('"')) or \
+                   (value.startswith("'") and value.endswith("'") and value.count("'") == 2):
+                    cleaned_lines.append(line)
+                    continue
+                
+                # If value contains problematic patterns (like 'word1', 'word2')
+                # wrap entire value in double quotes and escape internal quotes
+                if "'" in value:
+                    # Escape any existing double quotes
+                    value = value.replace('"', '\\"')
+                    # Remove or escape single quotes (YAML prefers double quotes for strings with special chars)
+                    value = value.replace("'", "")
+                    # Wrap in double quotes
+                    value = '"' + value + '"'
+                elif ':' in value or (',' in value and not value.startswith('[')):
+                    # Values with colons or commas should be quoted
+                    value = '"' + value.replace('"', '\\"') + '"'
+                
+                cleaned_lines.append(key.strip() + ': ' + value)
+            else:
+                cleaned_lines.append(line)
+        else:
+            cleaned_lines.append(line)
+    yaml_str = '\n'.join(cleaned_lines)
+    
+    result = yaml.safe_load(yaml_str)
+    return result
