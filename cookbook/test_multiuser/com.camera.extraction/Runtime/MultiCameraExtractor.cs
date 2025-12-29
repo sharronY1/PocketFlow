@@ -496,7 +496,7 @@ namespace CameraExtraction
 			// Pose logger
 			var poseLogger = host.GetComponent<CenterEyePoseLogger>();
 			if (poseLogger == null) poseLogger = host.AddComponent<CenterEyePoseLogger>();
-			poseLogger.Configure(cam, posesDir, screenshotsDir, Mathf.Max(1, config.frameInterval), config.poseIntervalSeconds, config.screenshotIntervalSeconds, config.captureScreenshot);
+			poseLogger.Configure(cam, posesDir, screenshotsDir, Mathf.Max(1, config.frameInterval), config.screenshotIntervalSeconds, config.captureScreenshot);
 
 		Debug.Log($"[MultiCameraExtractor] Setup for '{cameraName}' (id={host.GetInstanceID()}). Output: intrinsics={intrinsicsDir}, poses={posesDir}, screenshots={screenshotsDir}");
 	}

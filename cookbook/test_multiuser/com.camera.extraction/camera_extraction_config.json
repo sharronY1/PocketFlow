@@ -2,7 +2,6 @@
     "outputBasePath": "D:\\output",
     "useProjectSubfolder": false,
     "frameInterval": 20,
-    "poseIntervalSeconds": 0.2,
     "screenshotIntervalSeconds": 1.0,
     "captureScreenshot": true,
     "autoScreenshotEnabled": false,

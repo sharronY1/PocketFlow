@@ -50,7 +50,7 @@ namespace CameraExtraction.Editor
 				Debug.Log("[AttachAndRun] Created Main Camera");
 			}
 
-			// Add components if missing (main camera baseline)
+			// Add main camera components if missing
 			if (main.GetComponent<CenterEyePoseLogger>() == null) main.AddComponent<CenterEyePoseLogger>();
 			if (main.GetComponent<CameraIntrinsicsFromFOV>() == null) main.AddComponent<CameraIntrinsicsFromFOV>();
 

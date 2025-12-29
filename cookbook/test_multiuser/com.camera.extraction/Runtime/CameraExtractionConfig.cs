@@ -19,7 +19,6 @@ namespace CameraExtraction
         
         [Header("Recording Settings")]
         public int frameInterval = 30;
-        public float poseIntervalSeconds = 1.0f;
         public float screenshotIntervalSeconds = 1.0f;
         public bool captureScreenshot = true;
         public bool autoScreenshotEnabled = true;  // If false, screenshots are only triggered by Agent requests

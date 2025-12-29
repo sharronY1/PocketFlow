@@ -6,10 +6,9 @@ namespace CameraExtraction
 {
 	public class CenterEyePoseLogger : MonoBehaviour
 	{
-		public Camera targetCamera;
-		public int frameInterval;
-		public float poseIntervalSeconds = 1.0f;
-		public float screenshotIntervalSeconds = 1.0f;
+	public Camera targetCamera;
+	public int frameInterval;
+	public float screenshotIntervalSeconds = 1.0f;
 		public bool captureScreenshot = true;
 		public string customScreenshotPath = "";
 			public string customPosesPath = "";
@@ -38,11 +37,10 @@ namespace CameraExtraction
 
 		void Awake()
 		{
-			// load and apply config (no heavy initialization until camera is assigned)
-			config = CameraExtractionConfig.Load();
-			frameInterval = config.frameInterval;
-			poseIntervalSeconds = config.poseIntervalSeconds;
-			screenshotIntervalSeconds = config.screenshotIntervalSeconds;
+		// load and apply config (no heavy initialization until camera is assigned)
+		config = CameraExtractionConfig.Load();
+		frameInterval = config.frameInterval;
+		screenshotIntervalSeconds = config.screenshotIntervalSeconds;
 			captureScreenshot = config.captureScreenshot;
 			ApplyCliOverridesFromArgs();
 			initialized = false;
@@ -316,10 +314,9 @@ namespace CameraExtraction
 			{
 				foreach (string arg in Environment.GetCommandLineArgs())
 				{
-					if (arg.StartsWith("--screenshotDir=")) customScreenshotPath = arg.Substring("--screenshotDir=".Length).Trim('"');
-					else if (arg.StartsWith("--frameInterval=") && int.TryParse(arg.Substring("--frameInterval=".Length), out int n)) frameInterval = Mathf.Max(1, n);
-					else if (arg.StartsWith("--poseInterval=") && float.TryParse(arg.Substring("--poseInterval=".Length), out float p)) poseIntervalSeconds = Mathf.Max(0.1f, p);
-					else if (arg.StartsWith("--screenshotInterval=") && float.TryParse(arg.Substring("--screenshotInterval=".Length), out float f)) screenshotIntervalSeconds = Mathf.Max(0.1f, f);
+				if (arg.StartsWith("--screenshotDir=")) customScreenshotPath = arg.Substring("--screenshotDir=".Length).Trim('"');
+				else if (arg.StartsWith("--frameInterval=") && int.TryParse(arg.Substring("--frameInterval=".Length), out int n)) frameInterval = Mathf.Max(1, n);
+				else if (arg.StartsWith("--screenshotInterval=") && float.TryParse(arg.Substring("--screenshotInterval=".Length), out float f)) screenshotIntervalSeconds = Mathf.Max(0.1f, f);
 					else if (arg.StartsWith("--captureScreenshot=")) { string v = arg.Substring("--captureScreenshot=".Length); captureScreenshot = v == "1" || v.ToLowerInvariant() == "true"; }
 				}
 			}
@@ -423,17 +420,16 @@ namespace CameraExtraction
 			return true;
 		}
 
-		public void Configure(Camera cam, string posesDir, string screenshotsDir, int interval, float poseInterval, float screenshotInterval, bool capture)
-		{
-			targetCamera = cam;
-			customPosesPath = posesDir;
-			customScreenshotPath = screenshotsDir;
-			frameInterval = Mathf.Max(1, interval);
-			poseIntervalSeconds = Mathf.Max(0.1f, poseInterval);
-			screenshotIntervalSeconds = Mathf.Max(0.1f, screenshotInterval);
-			captureScreenshot = capture;
-			InitializeOutputsIfNeeded(true);
-		}
+	public void Configure(Camera cam, string posesDir, string screenshotsDir, int interval, float screenshotInterval, bool capture)
+	{
+		targetCamera = cam;
+		customPosesPath = posesDir;
+		customScreenshotPath = screenshotsDir;
+		frameInterval = Mathf.Max(1, interval);
+		screenshotIntervalSeconds = Mathf.Max(0.1f, screenshotInterval);
+		captureScreenshot = capture;
+		InitializeOutputsIfNeeded(true);
+	}
 
 		private static string SanitizeName(string name)
 		{

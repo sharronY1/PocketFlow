@@ -20,7 +20,6 @@ Key fields:
 - `outputBasePath`: Root for outputs (e.g. `E:\CS_FYP\camera_extraction\outputs`)
 - `useProjectSubfolder`: When true, outputs under `{outputBasePath}/{ProjectName}`
 - `frameInterval`: Legacy frame interval (kept for compatibility)
-- `poseIntervalSeconds`: Pose capture interval in seconds (default: 0.2)
 - `screenshotIntervalSeconds`: Screenshot capture interval in seconds (default: 1.0)
 - `captureScreenshot`: Toggle screenshot capture
 - `durationSeconds`: Auto-stop play duration (used by editor automation)
@@ -57,13 +56,13 @@ Orchestrator that discovers/maintains camera hosts.
   - Creates per-camera directories
   - Attaches and configures:
     - `CameraIntrinsicsFromFOV.Configure(cam, intrinsicsDir)` then `ExtractIntrinsicsNow()`
-    - `CenterEyePoseLogger.Configure(cam, posesDir, screenshotsDir, frameInterval, poseIntervalSeconds, screenshotIntervalSeconds, captureScreenshot)`
+    - `CenterEyePoseLogger.Configure(cam, posesDir, screenshotsDir, frameInterval, screenshotIntervalSeconds, captureScreenshot)`
 
 ### `Runtime/CenterEyePoseLogger.cs`
 Pose logging + optional offscreen screenshots for a specific camera.
 - Auto-attach to Main Camera on load (if none exists)
-- `Configure(cam, posesDir, screenshotsDir, frameInterval, poseInterval, screenshotInterval, capture)` sets target and initializes output
-- `Update()` logs pose every `poseIntervalSeconds` seconds, captures screenshots every `screenshotIntervalSeconds` seconds
+- `Configure(cam, posesDir, screenshotsDir, frameInterval, screenshotInterval, capture)` sets target and initializes output
+- `Update()` captures screenshots every `screenshotIntervalSeconds` seconds (pose logging is synchronized with screenshots)
 - Filenames include `{ProjectName}` and `{CameraName}`
 
 ### `Runtime/CameraIntrinsicsFromFOV.cs`
@@ -77,7 +76,6 @@ Utility to stop play mode/quit after a duration (used by editor automation).
 ## Command Line Arguments
 The following CLI arguments can override configuration settings:
 - `--frameInterval=N`: Override legacy frame interval (kept for compatibility)
-- `--poseInterval=N`: Override pose capture interval in seconds
 - `--screenshotInterval=N`: Override screenshot interval in seconds
 - `--captureScreenshot=true/false`: Override screenshot capture setting
 - `--screenshotDir="path"`: Override screenshot output directory
