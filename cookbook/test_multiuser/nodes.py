@@ -246,8 +246,8 @@ class DecisionNode(Node):
 
         actions_text = "\n".join(available_actions)
         
-        prompt = f"""You are {context['agent_id']}, an autonomous exploration agent exploring within a 3D environment as part of a multi-agent team.
-                    Your mission is to maximize the discovery of new objects and unexplored areas while cooperating efficiently with other agents. Avoid redundant exploration, communicate findings clearly, and make strategic movement decisions.
+        prompt = f"""You are {context['agent_id']}, an intelligent agent exploring an XR environment.
+
 Current state:
 - Position: {context['position']}
 - Visible objects: {context['visible_objects']}
@@ -255,21 +255,18 @@ Current state:
 - Steps taken: {context['step_count']}
 {boundary_text}
 
-Relevant historical memories:
+Historical memories (relevant):
 {memories_text}
 
-**Messages from other agents (IMPORTANT - analyze and consider these before deciding):**
+**Messages from other agents (IMPORTANT - consider these in your decision):**
 {messages_text}
-When other agents have reported discoveries or explored certain regions, use this information to **reduce overlap** and **improve overall coverage**.
 
 Task goal: Explore as many new objects as possible, avoid revisiting already explored areas. Analize the screen shot and decide the next action.
 
 Decision strategy:
-- Cross-reference other agents' messages with your local observation.
-- If another agent found new objects nearby, consider moving closer to assist or expand coverage.
-- If an area is already reported explored or low in novelty, avoid it.
-- Maintain spatial diversity to maximize total system exploration.
-- Communicate back only useful information.
+- If other agents reported finding new objects at nearby positions, consider moving there
+- If other agents already explored certain areas, avoid those to prevent duplication
+- Share important discoveries with other agents
 
 Available actions:
 {actions_text}
