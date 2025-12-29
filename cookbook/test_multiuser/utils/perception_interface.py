@@ -36,13 +36,6 @@ except ImportError:
     def get_config_value(key: str, default: Any = None) -> Any:
         return default
 
-# Load BOUNDARY_LIMIT from config.json, default to 15.0
-try:
-    BOUNDARY_LIMIT = float(get_config_value("boundary_limit", 15.0))
-except Exception:
-    # Fallback if config loading fails
-    BOUNDARY_LIMIT = 15.0
-
 
 class PerceptionInterface(ABC):
     """
