@@ -1,0 +1,16 @@
+{
+    "unity_output_base_path": "E:\\CS_FYP\\output",
+    "llm": {
+        "api_key": "sk-6zaYpyv2vu9O9ROZMbPEQzTImzSamkbLLG7VCQnMzfCn36Kk",
+        "base_url": "https://api.xinyun.ai/v1",
+        "model": "claude-3-5-haiku"
+    },
+    "vision_llm": {
+        "api_key": "sk-6zaYpyv2vu9O9ROZMbPEQzTImzSamkbLLG7VCQnMzfCn36Kk",
+        "base_url": "https://api.xinyun.ai/v1",
+        "model": "claude-3-5-haiku"
+    },
+    "max_steps": 105,
+    "env_server_url": "http://localhost:8000"
+}
+
