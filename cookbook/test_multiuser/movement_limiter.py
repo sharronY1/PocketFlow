@@ -11,7 +11,14 @@ class MovementLimiter:
     - 使用counter跟踪相对于初始朝向的旋转：look_right +1, look_left -1
     - counter % 4 确定当前朝向（0=前, 1=右, 2=后, 3=左）
     - 将当前朝向下的移动映射到初始朝向的方向
-    - 统计每个初始方向的移动次数
+    - 使用净移动次数进行限制：相反方向的移动会相互抵消
+      * forward-backward: forward +1, backward -1，限制净移动的绝对值
+      * left-right: left +1, right -1，限制净移动的绝对值
+      * up-down: up +1, down -1，限制净移动的绝对值
+    
+    示例：
+    - 限制为2时，向前2次(+2)，向后1次(-1)，再向前1次(+1)
+    - 净移动 = +2-1+1 = +2，绝对值2 <= 限制2，允许
     """
     
     # 方向映射：当前朝向 -> {当前动作: 初始方向}
@@ -43,12 +50,12 @@ class MovementLimiter:
         },
     }
     
-    def __init__(self, max_horizontal_moves=2, max_up_moves=3):
+    def __init__(self, max_horizontal_moves=2, max_up_moves=1):
         """
         初始化移动限制器
         
         Args:
-            max_horizontal_moves: 每个水平方向（前后左右）的最大移动次数
+            max_horizontal_moves: 每个水平方向对（前后、左右）的最大净移动次数
             max_up_moves: 向上移动的最大次数
         """
         self.max_horizontal_moves = max_horizontal_moves
@@ -57,14 +64,14 @@ class MovementLimiter:
         # 朝向计数器：look_right +1, look_left -1
         self.rotation_counter = 0
         
-        # 各方向移动计数（相对于初始朝向）
-        self.move_counts = {
-            'forward': 0,
-            'backward': 0,
-            'left': 0,
-            'right': 0,
-            'up': 0,
-            'down': 0,
+        # 净移动计数（相对于初始位置）
+        # forward-backward: forward +1, backward -1
+        # left-right: left +1, right -1
+        # up-down: up +1, down -1
+        self.net_movements = {
+            'forward_backward': 0,  # 正值表示向前，负值表示向后
+            'left_right': 0,        # 正值表示向左，负值表示向右
+            'up_down': 0,           # 正值表示向上，负值表示向下
         }
         
         # 动作历史
@@ -106,6 +113,7 @@ class MovementLimiter:
     def can_perform_action(self, action):
         """
         检查是否可以执行该动作（是否超过限制）
+        使用净移动次数进行限制检查
         
         Args:
             action: 动作名称
@@ -124,21 +132,50 @@ class MovementLimiter:
             # 非移动动作，允许
             return True, "Non-movement action allowed"
         
-        # 检查向上移动限制
+        # 检查上下移动限制（使用净移动）
         if initial_dir == 'up':
-            if self.move_counts['up'] >= self.max_up_moves:
-                return False, f"Up movement limit reached ({self.max_up_moves})"
+            # 向上移动：+1
+            new_net = self.net_movements['up_down'] + 1
+            if abs(new_net) > self.max_up_moves:
+                return False, f"Up movement limit reached (net: {new_net}, limit: {self.max_up_moves})"
             return True, "Up movement allowed"
         
-        # 检查向下移动（通常不限制，但可以扩展）
         if initial_dir == 'down':
+            # 向下移动：-1
+            new_net = self.net_movements['up_down'] - 1
+            if abs(new_net) > self.max_up_moves:
+                return False, f"Down movement limit reached (net: {new_net}, limit: {self.max_up_moves})"
             return True, "Down movement allowed"
         
-        # 检查水平方向限制
-        if initial_dir in ['forward', 'backward', 'left', 'right']:
-            if self.move_counts[initial_dir] >= self.max_horizontal_moves:
-                return False, f"Movement limit reached for {initial_dir} direction ({self.max_horizontal_moves})"
-            return True, f"Movement allowed for {initial_dir} direction"
+        # 检查前后方向限制（使用净移动）
+        if initial_dir == 'forward':
+            # 向前移动：+1
+            new_net = self.net_movements['forward_backward'] + 1
+            if abs(new_net) > self.max_horizontal_moves:
+                return False, f"Forward movement limit reached (net: {new_net}, limit: {self.max_horizontal_moves})"
+            return True, "Forward movement allowed"
+        
+        if initial_dir == 'backward':
+            # 向后移动：-1
+            new_net = self.net_movements['forward_backward'] - 1
+            if abs(new_net) > self.max_horizontal_moves:
+                return False, f"Backward movement limit reached (net: {new_net}, limit: {self.max_horizontal_moves})"
+            return True, "Backward movement allowed"
+        
+        # 检查左右方向限制（使用净移动）
+        if initial_dir == 'left':
+            # 向左移动：+1
+            new_net = self.net_movements['left_right'] + 1
+            if abs(new_net) > self.max_horizontal_moves:
+                return False, f"Left movement limit reached (net: {new_net}, limit: {self.max_horizontal_moves})"
+            return True, "Left movement allowed"
+        
+        if initial_dir == 'right':
+            # 向右移动：-1
+            new_net = self.net_movements['left_right'] - 1
+            if abs(new_net) > self.max_horizontal_moves:
+                return False, f"Right movement limit reached (net: {new_net}, limit: {self.max_horizontal_moves})"
+            return True, "Right movement allowed"
         
         return True, "Action allowed"
     
@@ -167,10 +204,21 @@ class MovementLimiter:
         elif action == 'look_left':
             self.rotation_counter -= 1
         
-        # 更新移动计数
+        # 更新净移动计数
         initial_dir = self.get_initial_direction(action)
         if initial_dir:
-            self.move_counts[initial_dir] += 1
+            if initial_dir == 'forward':
+                self.net_movements['forward_backward'] += 1
+            elif initial_dir == 'backward':
+                self.net_movements['forward_backward'] -= 1
+            elif initial_dir == 'left':
+                self.net_movements['left_right'] += 1
+            elif initial_dir == 'right':
+                self.net_movements['left_right'] -= 1
+            elif initial_dir == 'up':
+                self.net_movements['up_down'] += 1
+            elif initial_dir == 'down':
+                self.net_movements['up_down'] -= 1
         
         return True, reason
     
@@ -188,7 +236,7 @@ class MovementLimiter:
             'rotation_counter': self.rotation_counter,
             'current_facing': facing,
             'facing_name': facing_names[facing],
-            'move_counts': self.move_counts.copy(),
+            'net_movements': self.net_movements.copy(),
             'limits': {
                 'horizontal': self.max_horizontal_moves,
                 'up': self.max_up_moves,
@@ -199,6 +247,6 @@ class MovementLimiter:
     def reset(self):
         """重置所有计数器"""
         self.rotation_counter = 0
-        self.move_counts = {k: 0 for k in self.move_counts}
+        self.net_movements = {k: 0 for k in self.net_movements}
         self.action_history = []
 
