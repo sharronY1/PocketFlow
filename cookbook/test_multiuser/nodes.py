@@ -94,7 +94,7 @@ class RetrieveMemoryNode(Node):
         
         if exec_res:
             print(f"[{shared['agent_id']}] Retrieved {len(exec_res)} memories:")
-            for i, (text, dist) in enumerate(exec_res[:2], 1):
+            for i, (text, dist) in enumerate(exec_res[:], 1):
                 print(f"  {i}. {text[:80]}...")
         else:
             print(f"[{shared['agent_id']}] No memories found (first time)")
@@ -141,7 +141,8 @@ class DecisionNode(Node):
             "other_agent_messages": shared["other_agent_messages"],
             "explored_objects": list(shared["explored_objects"]),
             "step_count": shared["step_count"],
-            "perception_type": shared.get("perception", {}).get_environment_info().get("type", "unknown")
+            "perception_type": shared.get("perception", {}).get_environment_info().get("type", "unknown"),
+            "action_history": shared.get("action_history", [])  # Add action history to context
         }
         return context
     
@@ -166,6 +167,22 @@ class DecisionNode(Node):
             f"- {msg['sender']}: {msg['message']}"
             for msg in context["other_agent_messages"]
         ]) if context["other_agent_messages"] else "No messages from other agents"
+        
+        # Get latest 5 action history records (or all if less than 5)
+        action_history = context.get("action_history", [])
+        latest_history = action_history[-5:] if len(action_history) > 5 else action_history
+        
+        # Format action history for prompt
+        if latest_history:
+            history_text = "\n".join([
+                f"  Step {record['step']}: At position {record['position']}, action '{record['action']}', "
+                f"visible: {record.get('visible', [])}, "
+                f"new objects: {record.get('new_objects', [])}"
+                for record in latest_history
+            ])
+            history_section = f"Recent action history (last {len(latest_history)} steps):\n{history_text}"
+        else:
+            history_section = "No previous action history (this is the first step)"
         
         # Determine available actions based on perception type
         perception_type = context.get("perception_type", "unknown")
@@ -213,6 +230,8 @@ Current state:
 - Already explored objects: {context['explored_objects']}
 - Steps taken: {context['step_count']}
 
+{history_section}
+
 Relevant historical memories:
 {memories_text}
 
@@ -225,8 +244,8 @@ Task goal: Explore as many new objects as possible, avoid revisiting already exp
 Decision strategy:
 - Cross-reference other agents' messages with your local observation.
 - If another agent found new objects nearby, consider moving closer to assist or expand coverage.
-- If an area is already reported explored or low in novelty, avoid it.
-- Maintain spatial diversity to maximize total system exploration.
+- If you enter an area that is not meant to be explored (for example, the sky or any place outside the interactive scene), or if you get stuck somewhere, please find a way to leave that area.
+- If an area is already reported explored or low in novelty, avoid it. Maintain spatial diversity to maximize total system exploration.
 - Communicate back only useful information.
 
 Available actions:
@@ -423,13 +442,30 @@ class UpdateMemoryNode(Node):
     def post(self, shared, prep_res, exec_res):
         memory_text, objects_for_shared = exec_res
         
-        # Record action history with messages received
+        # Calculate new objects (before updating explored_objects)
+        # Filter out screenshot paths and normalize objects
+        visible_objects_normalized = []
+        if shared.get("visible_objects"):
+            visible_objects_normalized = [
+                obj.lower().strip() 
+                for obj in shared["visible_objects"]
+                if isinstance(obj, str) and not obj.startswith("screenshot:")
+            ]
+        
+        # Find new objects that are not in explored_objects yet
+        explored_set = shared.get("explored_objects", set())
+        new_objects = [
+            obj for obj in visible_objects_normalized 
+            if obj and obj not in explored_set
+        ]
+        
+        # Record action history with new objects
         shared["action_history"].append({
             "step": shared["step_count"],
             "position": shared["position"],
             "action": shared["action"],
             "visible": shared["visible_objects"],
-            "messages_received": shared.get("other_agent_messages", [])  # Record received messages
+            "new_objects": new_objects  # Only newly discovered objects
         })
         
         # Update explored_objects with discovered objects
