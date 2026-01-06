@@ -1,5 +1,5 @@
 """
-Minimal vision utilities: caption an image using OpenAI (base64 data URL).
+Minimal vision utilities: summarize an image using llm (base64 data URL).
 
 Falls back to filename-based caption if API is unavailable.
 """
@@ -7,7 +7,7 @@ import os
 import base64
 import json
 from pathlib import Path
-from typing import Optional, List, Any
+from typing import Optional, Dict, Any
 
 try:
     from openai import OpenAI  # type: ignore
@@ -29,25 +29,33 @@ def _to_data_url(image_path: str) -> str:
     return f"data:{mime};base64,{b64}"
 
 
-def caption_image(
+def summarize_img(
     image_path: str,
-    prompt: Optional[str] = None,
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
     model: Optional[str] = None,
     temperature: float = 0.0,
-) -> str:
+) -> Dict[str, Any]:
     """
-    Return a short caption for the image. Uses OpenAI vision if available; otherwise returns a filename-based fallback.
+    Summarize an image: generate a description and extract objects with their positions.
+    
+    Returns a dictionary with:
+    - "description": A brief sentence describing the environment/scene
+    - "objects": A dict mapping object names to their position (direction-distance)
     """
+    fallback_result = {
+        "description": f"photo({Path(image_path).name})",
+        "objects": {}
+    }
+    
     # Fallback if client is not available
     if OpenAI is None:
-        return f"photo({Path(image_path).name})"
+        return fallback_result
 
     # Priority: parameter > config file > environment variable
     api_key = api_key or get_config_value("vision_llm.api_key") or os.getenv("OPENAI_API_KEY", "")
     if not api_key:
-        return f"photo({Path(image_path).name})"
+        return fallback_result
 
     base_url = base_url or get_config_value("vision_llm.base_url") or os.getenv("OPENAI_BASE_URL")
     model = model or get_config_value("vision_llm.model") or os.getenv("OPENAI_VISION_MODEL", os.getenv("OPENAI_MODEL", "gemini-2.5-pro"))
@@ -55,85 +63,53 @@ def caption_image(
     try:
         client = OpenAI(api_key=api_key, base_url=base_url)
         data_url = _to_data_url(image_path)
-        user_content = []
-        if prompt:
-            user_content.append({"type": "text", "text": prompt})
-        else:
-            user_content.append({"type": "text", "text": "Briefly describe this scene in one short sentence."})
-        user_content.append({"type": "image_url", "image_url": {"url": data_url}})
-
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": user_content}],
-            temperature=0.2,
-        )
-        text = resp.choices[0].message.content or ""
-        print(f"[DEBUG]caption_image: {text}")
-        return text.strip() or f"photo({Path(image_path).name})"
-    except Exception:
-        return f"photo({Path(image_path).name})"
-
-
-def extract_objects_from_image(
-    image_path: str,
-    api_key: Optional[str] = None,
-    base_url: Optional[str] = None,
-    model: Optional[str] = None,
-    temperature: float = 0.0,
-) -> List[str]:
-    """
-    Extract a list of objects/items from an image using LLM vision model.
-    
-    Used for Unity mode where agents discover objects dynamically by analyzing screenshots.
-    Returns a list of object names found in the image.
-    
-    Args:
-        image_path: Path to the image file
-        api_key: API key for the vision model (falls back to config.json)
-        base_url: Base URL for the API (falls back to config.json)
-        model: Model name to use (falls back to config.json)
-        temperature: Temperature for generation
-    
-    Returns:
-        List of object names (e.g., ["chair", "table", "lamp"])
-    """
-    # Fallback if client is not available
-    if OpenAI is None:
-        return []
-    
-    # Priority: parameter > config file > environment variable
-    api_key = api_key or get_config_value("vision_llm.api_key") or os.getenv("OPENAI_API_KEY", "")
-    if not api_key:
-        return []
-    
-    base_url = base_url or get_config_value("vision_llm.base_url") or os.getenv("OPENAI_BASE_URL")
-    model = model or get_config_value("vision_llm.model") or os.getenv("OPENAI_VISION_MODEL", os.getenv("OPENAI_MODEL", "gemini-2.5-pro"))
-    
-    try:
-        client = OpenAI(api_key=api_key, base_url=base_url)
-        data_url = _to_data_url(image_path)
         
-        # Prompt to extract objects as a JSON list
-        prompt = """Analyze this image and extract all visible objects, items, or entities. 
-Return ONLY a JSON array of object names in English, one word per object when possible.
-Example: ["chair", "table", "lamp", "monitor"]
-Do not include descriptions or explanations, only the JSON array."""
-        
+        prompt = """Analyze this image and provide:
+1. A brief one-sentence description of the environment/scene.
+2. A JSON object mapping each visible object to its position.
+
+Position format: "direction-distance" where:
+- direction: front, back, left, right, up, down, or combinations like front-left, front-right, back-left, back-right, up-left, up-right, down-left, down-right
+- distance: near, mid, far
+
+Return your response in this exact JSON format:
+{
+    "description": "Your one-sentence scene description here",
+    "objects": {
+        "object_name_1": "direction-distance",
+        "object_name_2": "direction-distance"
+    }
+}
+
+Example:
+{
+    "description": "A modern living room with sunlight streaming through large windows",
+    "objects": {
+        "sofa": "front-near",
+        "coffee_table": "front-mid",
+        "window": "front-far",
+        "lamp": "right-near",
+        "bookshelf": "left-mid"
+    }
+}
+
+Return ONLY the JSON object, no additional text or markdown."""
+
         user_content = [
             {"type": "text", "text": prompt},
             {"type": "image_url", "image_url": {"url": data_url}}
         ]
-        
+
         resp = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": user_content}],
-            temperature=0.2,
+            temperature=temperature,
         )
         
         text = resp.choices[0].message.content or ""
-        print(f"[DEBUG]extract_objects_from_image: {text}")
+        print(f"[DEBUG]summarize_img raw response: {text}")
         
-        # Try to parse JSON array from response
+        # Parse JSON from response
         text = text.strip()
         # Remove markdown code blocks if present
         if text.startswith("```"):
@@ -143,23 +119,36 @@ Do not include descriptions or explanations, only the JSON array."""
             text = text.strip()
         
         try:
-            objects = json.loads(text)
-            if isinstance(objects, list):
-                # Filter and normalize object names
-                objects = [str(obj).lower().strip() for obj in objects if obj]
-                return objects
-        except json.JSONDecodeError:
-            # If JSON parsing fails, try to extract from text
-            # Look for array-like patterns
-            import re
-            match = re.search(r'\[(.*?)\]', text)
-            if match:
-                items = [item.strip().strip('"\'') for item in match.group(1).split(',')]
-                return [item.lower() for item in items if item]
+            result = json.loads(text)
+            if isinstance(result, dict):
+                # Validate and normalize the result
+                description = result.get("description", "")
+                objects = result.get("objects", {})
+                
+                if not isinstance(description, str):
+                    description = str(description) if description else ""
+                
+                if not isinstance(objects, dict):
+                    objects = {}
+                else:
+                    # Normalize object names to lowercase
+                    objects = {
+                        str(k).lower().strip(): str(v).lower().strip()
+                        for k, v in objects.items()
+                        if k and v
+                    }
+                
+                final_result = {
+                    "description": description or f"photo({Path(image_path).name})",
+                    "objects": objects
+                }
+                print(f"[DEBUG]summarize_img parsed: {final_result}")
+                return final_result
+        except json.JSONDecodeError as e:
+            print(f"[WARNING] JSON parsing failed in summarize_img: {e}")
         
-        return []
+        return fallback_result
+        
     except Exception as e:
-        print(f"[WARNING] Failed to extract objects from image: {e}")
-        return []
-
-
+        print(f"[WARNING] summarize_img failed: {e}")
+        return fallback_result

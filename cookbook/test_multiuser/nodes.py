@@ -8,7 +8,7 @@ from utils import (
     search_memory,
     add_to_memory,
 )
-from utils.vision import caption_image, extract_objects_from_image
+from utils.vision import summarize_img
 import time
 from utils.perception_interface import PerceptionInterface
 import yaml
@@ -55,22 +55,33 @@ class PerceptionNode(Node):
     
     def post(self, shared, prep_res, exec_res):
         shared["visible_objects"] = exec_res
-        # If unity screenshot path is present, generate a caption and extract objects
+        # If unity screenshot path is present, use summarize_img to get description and objects with positions
         # Example of exec_res: ["screenshot:E:/.../img.png"]
-        caption = None
+        description = None
         if exec_res and isinstance(exec_res[0], str) and exec_res[0].startswith("screenshot:"):
             image_path = exec_res[0].split("screenshot:", 1)[1]
-            caption = caption_image(image_path)
-            # Extract objects from Unity screenshot using LLM vision
-            extracted_objects = extract_objects_from_image(image_path)
-            # Update visible_objects with extracted object list for consistency
-            if extracted_objects:
-                shared["visible_objects"] = extracted_objects
+            # summarize_img returns {"description": "...", "objects": {"chair": "front-near", ...}}
+            summary = summarize_img(image_path)
+            description = summary.get("description")
+            objects_with_positions = summary.get("objects", {})
+            # Update visible_objects with object-position dict
+            if objects_with_positions:
+                shared["visible_objects"] = objects_with_positions
         
-        shared["visible_caption"] = caption or ", ".join(map(str, shared["visible_objects"]))
+        # Set visible_caption: use description if available, otherwise format visible_objects
+        if description:
+            shared["visible_caption"] = description
+        elif isinstance(shared["visible_objects"], dict):
+            # Format dict as "object1 (position1), object2 (position2), ..."
+            shared["visible_caption"] = ", ".join(
+                f"{obj} ({pos})" for obj, pos in shared["visible_objects"].items()
+            )
+        else:
+            shared["visible_caption"] = ", ".join(map(str, shared["visible_objects"]))
+        
         print(f"[{shared['agent_id']}] Position {shared['position']}: sees {shared['visible_objects']}")
-        if caption:
-            print(f"[{shared['agent_id']}] Caption: {shared['visible_caption']}")
+        if description:
+            print(f"[{shared['agent_id']}] Description: {description}")
         return "default"
 
 
@@ -404,9 +415,16 @@ class UpdateMemoryNode(Node):
             memory_text += f" | Context from others: {messages_summary}"
         
         # Prepare data for shared memory update - use visible_objects directly
-        visible_objects = shared.get("visible_objects", [])
-        # Filter out screenshot paths (in case extraction failed)
-        if visible_objects and isinstance(visible_objects, (list, set)):
+        visible_objects = shared.get("visible_objects", {})
+        # Handle both dict format (from summarize_img) and list format (fallback)
+        if isinstance(visible_objects, dict):
+            # Extract object names from dict keys
+            objects_for_shared = [
+                obj for obj in visible_objects.keys()
+                if isinstance(obj, str) and not obj.startswith("screenshot:")
+            ]
+        elif isinstance(visible_objects, (list, set)):
+            # Filter out screenshot paths (in case extraction failed)
             objects_for_shared = [
                 obj for obj in visible_objects 
                 if isinstance(obj, str) and not obj.startswith("screenshot:")
@@ -446,12 +464,21 @@ class UpdateMemoryNode(Node):
         # Calculate new objects (before updating explored_objects)
         # Filter out screenshot paths and normalize objects
         visible_objects_normalized = []
-        if shared.get("visible_objects"):
-            visible_objects_normalized = [
-                obj.lower().strip() 
-                for obj in shared["visible_objects"]
-                if isinstance(obj, str) and not obj.startswith("screenshot:")
-            ]
+        visible_objects = shared.get("visible_objects", {})
+        if visible_objects:
+            # Handle both dict format (from summarize_img) and list format (fallback)
+            if isinstance(visible_objects, dict):
+                visible_objects_normalized = [
+                    obj.lower().strip() 
+                    for obj in visible_objects.keys()
+                    if isinstance(obj, str) and not obj.startswith("screenshot:")
+                ]
+            else:
+                visible_objects_normalized = [
+                    obj.lower().strip() 
+                    for obj in visible_objects
+                    if isinstance(obj, str) and not obj.startswith("screenshot:")
+                ]
         
         # Find new objects that are not in explored_objects yet
         explored_set = shared.get("explored_objects", set())
