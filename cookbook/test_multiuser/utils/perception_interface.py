@@ -520,16 +520,27 @@ class Unity3DPerception(PerceptionInterface):
                 matches = glob.glob(pattern, recursive=True)
                 
                 if matches:
-                    # Filter: only match files in "Main Camera" folder (case-insensitive, but preserve space)
+                    # Filter: match files in "Main Camera" or "MainCamera" folder (case-insensitive)
+                    # Support both "main camera" (space), "main_camera" (underscore), and "maincamera" (no separator)
                     main_camera_matches = [
                         m for m in matches 
-                        if any("main_camera" in part.lower() for part in Path(m).parts)
+                        if any(
+                            "main camera" in part.lower() or 
+                            "main_camera" in part.lower() or 
+                            (part.lower().startswith("main") and "camera" in part.lower())
+                            for part in Path(m).parts
+                        )
                     ]
                     
                     if main_camera_matches:
                         # Return the most recently modified file
                         latest = max(main_camera_matches, key=lambda p: Path(p).stat().st_mtime)
                         # Check if file was created after our request
+                        if Path(latest).stat().st_mtime >= self._last_request_time.get(agent_id, 0):
+                            return latest
+                    # If no main camera matches found, return any match (fallback)
+                    elif matches:
+                        latest = max(matches, key=lambda p: Path(p).stat().st_mtime)
                         if Path(latest).stat().st_mtime >= self._last_request_time.get(agent_id, 0):
                             return latest
             
