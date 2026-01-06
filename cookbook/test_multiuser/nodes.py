@@ -28,11 +28,18 @@ class PerceptionNode(Node):
     """
     
     def prep(self, shared):
+        # Update position counter at the start of iteration (before perception)
+        shared["position"] += 1
+        
         # Get perception interface from shared store
-        # agent_share
         perception = shared["perception"]
         agent_id = shared["agent_id"]
         position = shared["position"]
+        
+        # Update agent position in shared memory
+        if shared.get("shared_memory"):
+            with env_lock:
+                shared["shared_memory"]["agent_positions"][shared["agent_id"]] = position
         
         return perception, agent_id, position
     
@@ -352,14 +359,8 @@ class ExecutionNode(Node):
         return new_state
     
     def post(self, shared, prep_res, exec_res):
-        # Update position
-        shared["position"] = exec_res["position"]
+        # Update step count
         shared["step_count"] += 1
-        
-        # Update agent position in shared memory
-        if shared.get("shared_memory"):
-            with env_lock:
-                shared["shared_memory"]["agent_positions"][shared["agent_id"]] = exec_res["position"]
         
         # Note: visible_objects will be updated in the next PerceptionNode
         # ExecutionNode only updates position, not perception
