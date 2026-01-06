@@ -240,6 +240,12 @@ namespace CameraExtraction
 			}
 			
 			string filepath = Path.Combine(outputDir, filename);
+			// Ensure directory exists before writing file
+			string directory = Path.GetDirectoryName(filepath);
+			if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+			{
+				Directory.CreateDirectory(directory);
+			}
 			File.WriteAllBytes(filepath, png); 
 			DestroyImmediate(screenshot);
 			Debug.Log($"[CenterEyePoseLogger] Screenshot saved: {filepath}");
@@ -300,6 +306,12 @@ namespace CameraExtraction
 				relativePathForCSV = filename;
 			}
 			string filepath = Path.Combine(outputDir, filename);
+			// Ensure directory exists before writing file
+			string directory = Path.GetDirectoryName(filepath);
+			if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+			{
+				Directory.CreateDirectory(directory);
+			}
 			File.WriteAllBytes(filepath, png);
 			DestroyImmediate(screenshot);
 			Debug.Log($"[CenterEyePoseLogger] Screenshot saved: {filepath}");
