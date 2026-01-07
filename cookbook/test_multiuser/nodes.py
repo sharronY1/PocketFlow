@@ -5,10 +5,14 @@ from pocketflow import Node
 from utils import (
     call_llm,
     get_embedding,
-    search_memory,
-    add_to_memory,
 )
 from utils.vision import summarize_img, compare_img
+from utils.clip_features import extract_visual_features
+from utils.shared_memory_client import (
+    SharedMemoryClient,
+    get_shared_memory_client,
+    search_and_update_or_add
+)
 import time
 from utils.perception_interface import PerceptionInterface
 import yaml
@@ -17,6 +21,7 @@ import os
 import re
 import glob
 from pathlib import Path
+import numpy as np
 
 
 def find_previous_screenshot(current_screenshot_path: str, agent_id: str) -> str:
@@ -78,14 +83,14 @@ class PerceptionNode(Node):
     Uses PerceptionInterface abstraction layer, supports switching between different perception implementations
     """
     
-    def prep(self, memory):
+    def prep(self, private_property):
         # Update position counter at the start of iteration (before perception)
-        memory["position"] += 1
+        private_property["position"] += 1
         
-        # Get perception interface from memory store
-        perception = memory["perception"]
-        agent_id = memory["agent_id"]
-        position = memory["position"]
+        # Get perception interface from private_property store
+        perception = private_property["perception"]
+        agent_id = private_property["agent_id"]
+        position = private_property["position"]
         
         return perception, agent_id, position
     
@@ -99,8 +104,8 @@ class PerceptionNode(Node):
         
         return visible
     
-    def post(self, memory, prep_res, exec_res):
-        memory["visible_objects"] = exec_res
+    def post(self, private_property, prep_res, exec_res):
+        private_property["visible_objects"] = exec_res
         # If unity screenshot path is present, use summarize_img to get description and objects with positions
         # Example of exec_res: ["screenshot:E:/.../img.png"]
         description = None
@@ -114,37 +119,37 @@ class PerceptionNode(Node):
             objects_with_positions = summary.get("objects", {})
             # Update visible_objects with object-position dict
             if objects_with_positions:
-                memory["visible_objects"] = objects_with_positions
+                private_property["visible_objects"] = objects_with_positions
         
         # Set visible_caption: use description if available, otherwise format visible_objects
         if description:
-            memory["visible_caption"] = description
-        elif isinstance(memory["visible_objects"], dict):
+            private_property["visible_caption"] = description
+        elif isinstance(private_property["visible_objects"], dict):
             # Format dict as "object1 (position1), object2 (position2), ..."
-            memory["visible_caption"] = ", ".join(
-                f"{obj} ({pos})" for obj, pos in memory["visible_objects"].items()
+            private_property["visible_caption"] = ", ".join(
+                f"{obj} ({pos})" for obj, pos in private_property["visible_objects"].items()
             )
         else:
-            memory["visible_caption"] = ", ".join(map(str, memory["visible_objects"]))
+            private_property["visible_caption"] = ", ".join(map(str, private_property["visible_objects"]))
         
-        print(f"[{memory['agent_id']}] Position {memory['position']}: sees {memory['visible_objects']}")
+        print(f"[{private_property['agent_id']}] Position {private_property['position']}: sees {private_property['visible_objects']}")
         if description:
-            print(f"[{memory['agent_id']}] Description: {description}")
+            print(f"[{private_property['agent_id']}] Description: {description}")
         
         # Compare with previous screenshot if available
         if current_image_path:
-            agent_id = memory["agent_id"]
+            agent_id = private_property["agent_id"]
             prev_image_path = find_previous_screenshot(current_image_path, agent_id)
             
             if prev_image_path:
                 print(f"[{agent_id}] Comparing with previous screenshot: {prev_image_path}")
                 env_change_text = compare_img(prev_image_path, current_image_path)
                 
-                # Store env change in memory
-                if "env_change" not in memory:
-                    memory["env_change"] = []
-                memory["env_change"].append({
-                    "step": memory["position"],
+                # Store env change in private_property
+                if "env_change" not in private_property:
+                    private_property["env_change"] = []
+                private_property["env_change"].append({
+                    "step": private_property["position"],
                     "change": env_change_text,
                     "prev_image": prev_image_path,
                     "curr_image": current_image_path
@@ -157,46 +162,11 @@ class PerceptionNode(Node):
         return "default"
 
 
-class RetrieveMemoryNode(Node):
-    """Memory retrieval node: Retrieve relevant history from FAISS"""
-    
-    def prep(self, memory):
-        visible_caption = memory.get("visible_caption") or ", ".join(map(str, memory.get("visible_objects", [])))
-        position = memory["position"]
-        
-        # Construct query text using caption (works for both mock text and image-derived caption)
-        query = f"What do I know about position {position} with what I see: {visible_caption}?"
-        return query, memory["memory_index"], memory["memory_texts"]
-    
-    def exec(self, prep_res):
-        query, index, memory_texts = prep_res
-        
-        # Get query vector
-        query_emb = get_embedding(query)
-        
-        # Search memory
-        results = search_memory(index, query_emb, memory_texts, top_k=3)
-        
-        return results
-    
-    def post(self, memory, prep_res, exec_res):
-        memory["retrieved_memories"] = exec_res
-        
-        if exec_res:
-            print(f"[{memory['agent_id']}] Retrieved {len(exec_res)} memories:")
-            for i, (text, dist) in enumerate(exec_res[:], 1):
-                print(f"  {i}. {text[:80]}...")
-        else:
-            print(f"[{memory['agent_id']}] No memories found (first time)")
-        
-        return "default"
-
-
 class CommunicationNode(Node):
     """Communication node: Read messages from other agents"""
     
-    def prep(self, memory):
-        return memory["agent_id"], memory["perception"]
+    def prep(self, private_property):
+        return private_property["agent_id"], private_property["perception"]
     
     def exec(self, prep_res):
         agent_id, perception = prep_res
@@ -207,33 +177,336 @@ class CommunicationNode(Node):
             messages = []
         return messages
     
-    def post(self, memory, prep_res, exec_res):
-        memory["other_agent_messages"] = exec_res
+    def post(self, private_property, prep_res, exec_res):
+        private_property["other_agent_messages"] = exec_res
         
         if exec_res:
-            print(f"[{memory['agent_id']}] Received {len(exec_res)} messages:")
+            print(f"[{private_property['agent_id']}] Received {len(exec_res)} messages:")
             for msg in exec_res:
                 print(f"  From {msg['sender']}: {msg['message']}")
         
         return "default"
 
 
+class SharedMemoryRetrieveNode(Node):
+    """
+    Shared Memory Retrieve Node: Search the distributed shared memory for matching entities.
+    
+    This node:
+    1. Extracts CLIP visual features from current screenshot (if available)
+    2. Gets description embedding from visible_caption
+    3. Searches the shared memory server for matching entities
+    4. Stores retrieval results for subsequent processing
+    
+    Flow according to diagram:
+    - retrieve mem → found entry (same obj) → update entry
+    - retrieve mem → found entry (diff obj) → save new entry
+    - retrieve mem → not found → save new entry
+    """
+    
+    def prep(self, private_property):
+        agent_id = private_property["agent_id"]
+        position = private_property["position"]
+        visible_objects = private_property.get("visible_objects", {})
+        visible_caption = private_property.get("visible_caption", "")
+        
+        # Get screenshot path if available
+        screenshot_path = None
+        if isinstance(visible_objects, dict):
+            # Check if there's a screenshot path in visible_objects
+            for key in visible_objects:
+                if isinstance(key, str) and key.startswith("screenshot:"):
+                    screenshot_path = key.split("screenshot:", 1)[1]
+                    break
+        elif isinstance(visible_objects, list):
+            for item in visible_objects:
+                if isinstance(item, str) and item.startswith("screenshot:"):
+                    screenshot_path = item.split("screenshot:", 1)[1]
+                    break
+        
+        # Also check if screenshot path was stored directly
+        if not screenshot_path:
+            # Try to find from current observation
+            raw_visible = private_property.get("visible_objects", [])
+            if isinstance(raw_visible, list) and raw_visible:
+                first_item = raw_visible[0]
+                if isinstance(first_item, str) and first_item.startswith("screenshot:"):
+                    screenshot_path = first_item.split("screenshot:", 1)[1]
+        
+        # Store screenshot path for later use
+        if screenshot_path:
+            private_property["_current_screenshot_path"] = screenshot_path
+        
+        # Get shared memory client from private_property store (or create new one)
+        shared_memory_client = private_property.get("shared_memory_client")
+        if shared_memory_client is None:
+            shared_memory_client = get_shared_memory_client()
+            private_property["shared_memory_client"] = shared_memory_client
+        
+        return {
+            "agent_id": agent_id,
+            "position": position,
+            "visible_caption": visible_caption,
+            "visible_objects": visible_objects,
+            "screenshot_path": screenshot_path,
+            "shared_memory_client": shared_memory_client
+        }
+    
+    def exec(self, prep_res):
+        agent_id = prep_res["agent_id"]
+        visible_caption = prep_res["visible_caption"]
+        visible_objects = prep_res["visible_objects"]
+        screenshot_path = prep_res["screenshot_path"]
+        client = prep_res["shared_memory_client"]
+        
+        # Check if shared memory server is available
+        if not client.is_available():
+            print(f"[{agent_id}] SharedMemory server not available, skipping shared memory retrieval")
+            return {
+                "server_available": False,
+                "visual_features": None,
+                "description_embedding": None,
+                "search_result": None,
+                "objects_to_process": []
+            }
+        
+        # Extract CLIP visual features from screenshot
+        visual_features = None
+        if screenshot_path and os.path.exists(screenshot_path):
+            print(f"[{agent_id}] Extracting CLIP features from: {screenshot_path}")
+            visual_features = extract_visual_features(screenshot_path)
+            if visual_features is not None:
+                print(f"[{agent_id}] CLIP features extracted: shape={visual_features.shape}")
+        
+        # Get description embedding
+        description_embedding = None
+        if visible_caption:
+            description_embedding = get_embedding(visible_caption)
+            if description_embedding is not None:
+                print(f"[{agent_id}] Description embedding: shape={description_embedding.shape}")
+        
+        # Search shared memory
+        search_result = None
+        if visual_features is not None or description_embedding is not None:
+            search_result = client.search(
+                visual_features=visual_features,
+                description_embedding=description_embedding,
+                agent_id=agent_id
+            )
+            
+            if search_result.match_found:
+                print(f"[{agent_id}] SharedMemory search: found {len(search_result.matches)} matches")
+                if search_result.is_same_object:
+                    print(f"[{agent_id}]   → Same object detected (entity_id: {search_result.top_entity_id})")
+                else:
+                    print(f"[{agent_id}]   → Similar but different object")
+            else:
+                print(f"[{agent_id}] SharedMemory search: no matches found")
+        
+        # Prepare list of objects to process (for adding to shared memory)
+        objects_to_process = []
+        if isinstance(visible_objects, dict):
+            for obj_name, position in visible_objects.items():
+                if isinstance(obj_name, str):
+                    objects_to_process.append({
+                        "name": obj_name,
+                        "position": position
+                    })
+        elif isinstance(visible_objects, (list, set)):
+            for obj in visible_objects:
+                if isinstance(obj, str):
+                    objects_to_process.append({
+                        "name": obj,
+                        "position": ""
+                    })
+        
+        return {
+            "server_available": True,
+            "visual_features": visual_features,
+            "description_embedding": description_embedding,
+            "search_result": search_result,
+            "objects_to_process": objects_to_process
+        }
+    
+    def post(self, private_property, prep_res, exec_res):
+        # Store results in private_property for later use by SharedMemoryUpdateNode
+        private_property["_shared_memory_retrieval"] = {
+            "server_available": exec_res["server_available"],
+            "visual_features": exec_res["visual_features"],
+            "description_embedding": exec_res["description_embedding"],
+            "search_result": exec_res["search_result"],
+            "objects_to_process": exec_res["objects_to_process"]
+        }
+        
+        # Store retrieved shared memory info for DecisionNode context
+        if exec_res["search_result"] and exec_res["search_result"].matches:
+            private_property["shared_memory_matches"] = [
+                {
+                    "entity_id": m.entity_id,
+                    "entity_type": m.entity_type,
+                    "description": m.description_text,
+                    "similarity": m.combined_score,
+                    "visit_count": m.meta_info.get("visit_count", 0),
+                    "discovered_by": m.inferred_properties.get("discovered_by_agents", [])
+                }
+                for m in exec_res["search_result"].matches[:5]  # Top 5
+            ]
+        else:
+            private_property["shared_memory_matches"] = []
+        
+        return "default"
+
+
+class SharedMemoryUpdateNode(Node):
+    """
+    Shared Memory Update Node: Update or add entities to shared memory based on retrieval results.
+    
+    This node implements the flow:
+    - If same object found → Update entry (last_updated, discovered_by_agents, exploration_priority, visit_count)
+    - If different object found OR not found → Save new entry into shared memory
+    """
+    
+    def prep(self, private_property):
+        agent_id = private_property["agent_id"]
+        position = private_property["position"]
+        step_count = private_property["step_count"]
+        visible_caption = private_property.get("visible_caption", "")
+        
+        # Get retrieval results from SharedMemoryRetrieveNode
+        retrieval = private_property.get("_shared_memory_retrieval", {})
+        
+        # Get shared memory client
+        shared_memory_client = private_property.get("shared_memory_client")
+        
+        return {
+            "agent_id": agent_id,
+            "position": position,
+            "step_count": step_count,
+            "visible_caption": visible_caption,
+            "retrieval": retrieval,
+            "shared_memory_client": shared_memory_client
+        }
+    
+    def exec(self, prep_res):
+        agent_id = prep_res["agent_id"]
+        step_count = prep_res["step_count"]
+        visible_caption = prep_res["visible_caption"]
+        retrieval = prep_res["retrieval"]
+        client = prep_res["shared_memory_client"]
+        
+        if not retrieval.get("server_available") or client is None:
+            return {
+                "action": "skipped",
+                "reason": "Server not available",
+                "entities_updated": [],
+                "entities_added": []
+            }
+        
+        search_result = retrieval.get("search_result")
+        visual_features = retrieval.get("visual_features")
+        description_embedding = retrieval.get("description_embedding")
+        objects_to_process = retrieval.get("objects_to_process", [])
+        
+        entities_updated = []
+        entities_added = []
+        
+        if search_result and search_result.is_same_object and search_result.top_entity_id:
+            # === Same object found → Update entry ===
+            entity_id = search_result.top_entity_id
+            
+            success = client.update_entity(
+                entity_id=entity_id,
+                agent_id=agent_id,
+                current_step=step_count,
+                new_visual_features=visual_features,
+                new_description_embedding=description_embedding
+            )
+            
+            if success:
+                print(f"[{agent_id}] SharedMemory: Updated existing entity {entity_id}")
+                entities_updated.append(entity_id)
+            else:
+                print(f"[{agent_id}] SharedMemory: Failed to update entity {entity_id}")
+            
+            return {
+                "action": "updated",
+                "reason": "Same object found",
+                "entities_updated": entities_updated,
+                "entities_added": entities_added
+            }
+        
+        else:
+            # === Not found OR different object → Save new entry ===
+            # Add each observed object as a new entity
+            for obj in objects_to_process:
+                obj_name = obj["name"]
+                obj_position = obj.get("position", "")
+                
+                # Determine entity type from object name
+                entity_type = obj_name.lower().strip()
+                
+                entity_id = client.add_entity(
+                    entity_type=entity_type,
+                    visual_features=visual_features,  # Shared visual features for now
+                    description_embedding=description_embedding,  # Shared description for now
+                    description_text=f"{obj_name} - {visible_caption}",
+                    discovered_by_agent=agent_id,
+                    current_step=step_count,
+                    relative_position=obj_position,
+                    region=""  # Could be inferred from position or environment
+                )
+                
+                if entity_id:
+                    print(f"[{agent_id}] SharedMemory: Added new entity {entity_id} ({entity_type})")
+                    entities_added.append(entity_id)
+                else:
+                    print(f"[{agent_id}] SharedMemory: Failed to add entity for {obj_name}")
+            
+            return {
+                "action": "added",
+                "reason": "New objects found" if not search_result or not search_result.match_found else "Different objects",
+                "entities_updated": entities_updated,
+                "entities_added": entities_added
+            }
+    
+    def post(self, private_property, prep_res, exec_res):
+        # Store update results in private_property
+        private_property["_shared_memory_update_result"] = exec_res
+        
+        # Log summary
+        agent_id = private_property["agent_id"]
+        if exec_res["entities_updated"]:
+            print(f"[{agent_id}] SharedMemory update summary: {len(exec_res['entities_updated'])} entities updated")
+        if exec_res["entities_added"]:
+            print(f"[{agent_id}] SharedMemory update summary: {len(exec_res['entities_added'])} entities added")
+        
+        # Clean up temporary retrieval data
+        if "_shared_memory_retrieval" in private_property:
+            del private_property["_shared_memory_retrieval"]
+        
+        # Read the flow control action from UpdateMemoryNode (stored in private_property)
+        # UpdateMemoryNode sets this before returning
+        flow_action = private_property.get("_flow_control_action", "continue")
+        
+        return flow_action
+
+
 class DecisionNode(Node):
     """Decision node: Decide next action based on context"""
     
-    def prep(self, memory):
+    def prep(self, private_property):
         # Collect all context needed for decision making
         context = {
-            "agent_id": memory["agent_id"],
-            "position": memory["position"],
-            "visible_objects": memory["visible_objects"],
-            "retrieved_memories": memory["retrieved_memories"],
-            "other_agent_messages": memory["other_agent_messages"],
-            "explored_objects": list(memory["explored_objects"]),
-            "step_count": memory["step_count"],
-            "perception_type": memory.get("perception", {}).get_environment_info().get("type", "unknown"),
-            "action_history": memory.get("action_history", []),  # Add action history to context
-            "env_change": memory.get("env_change", [])  # Add environment change history
+            "agent_id": private_property["agent_id"],
+            "position": private_property["position"],
+            "visible_objects": private_property["visible_objects"],
+            "retrieved_memories": private_property["retrieved_memories"],
+            "other_agent_messages": private_property["other_agent_messages"],
+            "explored_objects": list(private_property["explored_objects"]),
+            "step_count": private_property["step_count"],
+            "perception_type": private_property.get("perception", {}).get_environment_info().get("type", "unknown"),
+            "action_history": private_property.get("action_history", []),  # Add action history to context
+            "env_change": private_property.get("env_change", [])  # Add environment change history
         }
         return context
     
@@ -275,16 +548,12 @@ class DecisionNode(Node):
         else:
             history_section = "No previous action history (this is the first step)"
         
-        # Format environment change history (last 5 entries)
+        # Format environment change history (last 1 entry only)
         env_change_history = context.get("env_change", [])
-        latest_env_changes = env_change_history[-5:] if len(env_change_history) > 5 else env_change_history
+        latest_env_change = env_change_history[-1] if env_change_history else None
         
-        if latest_env_changes:
-            env_change_text = "\n".join([
-                f"  Step {record['step']}: {record['change']}"
-                for record in latest_env_changes
-            ])
-            env_change_section = f"Recent environment changes (comparing consecutive screenshots):\n{env_change_text}"
+        if latest_env_change:
+            env_change_section = f"Latest environment change (comparing consecutive screenshots):\n  Step {latest_env_change['step']}: {latest_env_change['change']}"
         else:
             env_change_section = "No environment change history yet (first observation or screenshots not available)"
         
@@ -350,9 +619,10 @@ Task goal: Explore as many new objects as possible, avoid revisiting already exp
 Decision strategy:
 - Cross-reference other agents' messages with your local observation.
 - If another agent found new objects nearby, consider moving closer to assist or expand coverage.
-- If you enter an area that is not meant to be explored (for example, the sky or any place outside the interactive scene), or if you get stuck somewhere, please find a way to leave that area.
+- Important: If you enter an area that is not meant to be explored or meaningless(for example, the sky or any place outside the interactive scene),  please find a way to leave that area.
+- Important: Based on the environment change and action history, analyze if you get stuck somewhere. If so, please find a way to leave that area.
 - If an area is already reported explored or low in novelty, avoid it. Maintain spatial diversity to maximize total system exploration.
-- Communicate back only useful information.
+- Communicate back only useful information. 
 
 Available actions:
 {actions_text}
@@ -418,12 +688,12 @@ message_to_others: Information to share with other agents (optional)
         
         return result
     
-    def post(self, memory, prep_res, exec_res):
-        memory["action"] = exec_res["action"]
-        memory["action_reason"] = exec_res.get("reason", "")
-        memory["message_to_others"] = exec_res.get("message_to_others", "")
+    def post(self, private_property, prep_res, exec_res):
+        private_property["action"] = exec_res["action"]
+        private_property["action_reason"] = exec_res.get("reason", "")
+        private_property["message_to_others"] = exec_res.get("message_to_others", "")
         
-        print(f"[{memory['agent_id']}] Decision: {exec_res['action']}")
+        print(f"[{private_property['agent_id']}] Decision: {exec_res['action']}")
         print(f"  Reason: {exec_res['reason']}")
         
         return "default"
@@ -436,10 +706,10 @@ class ExecutionNode(Node):
     Uses PerceptionInterface to execute actions, supports different environment implementations
     """
     
-    def prep(self, memory):
-        perception = memory["perception"]
-        agent_id = memory["agent_id"]
-        action = memory["action"]
+    def prep(self, private_property):
+        perception = private_property["perception"]
+        agent_id = private_property["agent_id"]
+        action = private_property["action"]
         
         return perception, agent_id, action
     
@@ -457,18 +727,18 @@ class ExecutionNode(Node):
 
         return new_state
     
-    def post(self, memory, prep_res, exec_res):
+    def post(self, private_property, prep_res, exec_res):
         # Update step count
-        memory["step_count"] += 1
+        private_property["step_count"] += 1
         
         # Note: visible_objects will be updated in the next PerceptionNode
         # ExecutionNode only updates position, not perception
         
         # Send message to other agents
-        if memory.get("message_to_others"):
-            agent_id = memory["agent_id"]
-            message = memory["message_to_others"]
-            perception = memory["perception"]
+        if private_property.get("message_to_others"):
+            agent_id = private_property["agent_id"]
+            message = private_property["message_to_others"]
+            perception = private_property["perception"]
             try:
                 perception.send_message(agent_id, "all", message)
                 print(f"[{agent_id}] Sent message: {message}")
@@ -482,28 +752,17 @@ class ExecutionNode(Node):
 
 
 class UpdateMemoryNode(Node):
-    """Memory update node: Store new exploration information in FAISS"""
+    """Memory update node: Update exploration history and discovered objects"""
     
-    def prep(self, memory):
-        # Construct memory text with own experience
-        memory_text = (
-            f"At position {memory['position']}, "
-            f"I saw {memory['visible_objects']}. "
-            f"I decided to {memory['action']}. "
-            f"Reason: {memory['action_reason']}"
-        )
+    def prep(self, private_property):
+        agent_id = private_property["agent_id"]
+        position = private_property["position"]
+        step_count = private_property["step_count"]
+        action = private_property["action"]
+        action_reason = private_property["action_reason"]
+        visible_objects = private_property.get("visible_objects", {})
         
-        # Add messages from other agents (if any)
-        if memory.get("other_agent_messages"):
-            messages_parts = []
-            for msg in memory["other_agent_messages"]:
-                messages_parts.append(f"{msg['sender']}: {msg['message']}")
-            
-            messages_summary = "; ".join(messages_parts)
-            memory_text += f" | Context from others: {messages_summary}"
-        
-        # Prepare data for memory update - use visible_objects directly
-        visible_objects = memory.get("visible_objects", {})
+        # Prepare data for update - extract objects list
         # Handle both dict format (from summarize_img) and list format (fallback)
         if isinstance(visible_objects, dict):
             # Extract object names from dict keys
@@ -520,26 +779,28 @@ class UpdateMemoryNode(Node):
         else:
             objects_list = []
         
-        return memory_text, memory["memory_index"], memory["memory_texts"], memory["agent_id"], memory["position"], objects_list
+        return {
+            "agent_id": agent_id,
+            "position": position,
+            "step_count": step_count,
+            "action": action,
+            "action_reason": action_reason,
+            "visible_objects": visible_objects,
+            "objects_list": objects_list
+        }
     
     def exec(self, prep_res):
-        memory_text, index, memory_texts, agent_id, position, objects_list = prep_res
-        
-        # Get embedding
-        embedding = get_embedding(memory_text)
-        
-        # Add to episodic memory (FAISS)
-        add_to_memory(index, embedding, memory_text, memory_texts)
-        
-        return memory_text, objects_list
+        # No local memory operations needed - shared memory handles storage
+        return prep_res
     
-    def post(self, memory, prep_res, exec_res):
-        memory_text, objects_list = exec_res
+    def post(self, private_property, prep_res, exec_res):
+        agent_id = exec_res["agent_id"]
+        objects_list = exec_res["objects_list"]
+        visible_objects = exec_res["visible_objects"]
         
         # Calculate new objects (before updating explored_objects)
         # Filter out screenshot paths and normalize objects
         visible_objects_normalized = []
-        visible_objects = memory.get("visible_objects", {})
         if visible_objects:
             # Handle both dict format (from summarize_img) and list format (fallback)
             if isinstance(visible_objects, dict):
@@ -556,38 +817,42 @@ class UpdateMemoryNode(Node):
                 ]
         
         # Find new objects that are not in explored_objects yet
-        explored_set = memory.get("explored_objects", set())
+        explored_set = private_property.get("explored_objects", set())
         new_objects = [
             obj for obj in visible_objects_normalized 
             if obj and obj not in explored_set
         ]
         
         # Record action history with new objects
-        memory["action_history"].append({
-            "step": memory["step_count"],
-            "position": memory["position"],
-            "action": memory["action"],
-            "visible": memory["visible_objects"],
+        private_property["action_history"].append({
+            "step": private_property["step_count"],
+            "position": private_property["position"],
+            "action": private_property["action"],
+            "visible": private_property["visible_objects"],
             "new_objects": new_objects  # Only newly discovered objects
         })
         
         # Update explored_objects with discovered objects
         if objects_list:
             objects_set = set(obj.lower().strip() for obj in objects_list if obj)
-            memory["explored_objects"].update(objects_set)
+            private_property["explored_objects"].update(objects_set)
         
-        print(f"[{memory['agent_id']}] Memory updated: {memory_text[:100]}...")
+        print(f"[{agent_id}] Updated exploration history")
         if objects_list:
-            print(f"[{memory['agent_id']}] Discovered objects: {objects_list}")
-            print(f"[{memory['agent_id']}] Total unique objects explored: {len(memory['explored_objects'])}")
+            print(f"[{agent_id}] Discovered objects: {objects_list}")
+            print(f"[{agent_id}] Total unique objects explored: {len(private_property['explored_objects'])}")
         
         # Decide whether to continue exploration
-        max_steps = memory.get("max_steps", 20)
+        max_steps = private_property.get("max_steps", 20)
         
-        if memory["step_count"] >= max_steps:
-            print(f"[{memory['agent_id']}] Reached max steps ({max_steps}), ending exploration")
+        if private_property["step_count"] >= max_steps:
+            print(f"[{agent_id}] Reached max steps ({max_steps}), ending exploration")
+            # Store flow control action for SharedMemoryUpdateNode
+            private_property["_flow_control_action"] = "end"
             return "end"
         
+        # Store flow control action for SharedMemoryUpdateNode
+        private_property["_flow_control_action"] = "continue"
         return "continue"
 
 

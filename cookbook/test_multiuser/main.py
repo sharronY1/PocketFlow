@@ -3,7 +3,7 @@ Multi-Agent XR Environment Exploration System - Main Program
 """
 import os
 import sys
-from utils import create_environment, create_memory
+from utils import create_environment
 from utils.perception_interface import create_perception, PerceptionInterface
 from utils.window_manager import find_and_focus_meta_xr_simulator
 from utils.config_loader import get_config_value, sync_unity_config
@@ -25,8 +25,8 @@ def run_agent(agent_id: str, perception: PerceptionInterface, max_steps: int = 2
     print(f"Starting {agent_id}...")
     print(f"{'='*60}\n")
     
-    # Create agent's memory store (renamed from agent_shared)
-    memory = {
+    # Create agent's private property store (each agent's local state)
+    private_property = {
         # Basic identification
         "agent_id": agent_id,
         "perception": perception,
@@ -36,14 +36,10 @@ def run_agent(agent_id: str, perception: PerceptionInterface, max_steps: int = 2
         "step_count": 0,
         "max_steps": max_steps,
         
-        # Episodic memory system (FAISS vector index + texts)
-        "memory_index": create_memory(dimension=384),
-        "memory_texts": [],
-        
         # Current observation state (updated each step)
         "visible_objects": {},  # dict format: {object_name: position_description}
         "visible_caption": "",  # text description of current view
-        "retrieved_memories": [],  # top-k memories from FAISS search
+        "retrieved_memories": [],  # retrieved from shared memory server
         "other_agent_messages": [],  # messages received from other agents
         
         # Decision results (current step)
@@ -61,7 +57,7 @@ def run_agent(agent_id: str, perception: PerceptionInterface, max_steps: int = 2
     flow = create_agent_flow()
     
     try:
-        flow.run(memory)
+        flow.run(private_property)
     except Exception as e:
         print(f"\n[{agent_id}] Error: {e}")
         import traceback
@@ -71,21 +67,14 @@ def run_agent(agent_id: str, perception: PerceptionInterface, max_steps: int = 2
     print(f"\n{'='*60}")
     print(f"{agent_id} Exploration Summary")
     print(f"{'='*60}")
-    print(f"Total steps: {memory['step_count']}")
-    print(f"Final position: {memory['position']}")
-    print(f"Unique objects explored: {len(memory['explored_objects'])}")
-    print(f"Objects: {memory['explored_objects']}")
-    print(f"Memories stored: {len(memory['memory_texts'])}")
-    
-    # Show sample memories (first 3)
-    if memory['memory_texts']:
-        print(f"\nSample memories:")
-        for i, mem in enumerate(memory['memory_texts'][:3], 1):
-            print(f"  {i}. {mem[:120]}...")
+    print(f"Total steps: {private_property['step_count']}")
+    print(f"Final position: {private_property['position']}")
+    print(f"Unique objects explored: {len(private_property['explored_objects'])}")
+    print(f"Objects: {private_property['explored_objects']}")
     
     print(f"{'='*60}\n")
     
-    return memory
+    return private_property
 
 
 def main(perception_type: str = "mock", agent_id: str = "Agent"):
@@ -207,7 +196,7 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
     
     print("\n[System] Starting agent...")
     start_time = time.time()
-    final_memory = run_agent(agent_id, perception, max_steps)
+    final_private_property = run_agent(agent_id, perception, max_steps)
     elapsed_time = time.time() - start_time
     
     # Print overall summary
@@ -215,8 +204,8 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
     print("FINAL SYSTEM SUMMARY")
     print("="*60)
     print(f"Total execution time: {elapsed_time:.2f} seconds")
-    print(f"Total unique objects discovered: {len(final_memory['explored_objects'])}")
-    print(f"Objects: {final_memory['explored_objects']}")
+    print(f"Total unique objects discovered: {len(final_private_property['explored_objects'])}")
+    print(f"Objects: {final_private_property['explored_objects']}")
     print("="*60)
     
     print("\n[System] Exploration completed!")

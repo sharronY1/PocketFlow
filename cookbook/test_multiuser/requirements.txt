@@ -11,3 +11,8 @@ uvicorn
 pydantic
 requests
 pydirectinput
+# CLIP model dependencies
+transformers
+torch
+torchvision
+pillow

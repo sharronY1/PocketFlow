@@ -4,11 +4,12 @@ Flow definition for Multi-Agent exploration system
 from pocketflow import Flow
 from nodes import (
     PerceptionNode,
-    RetrieveMemoryNode,
     CommunicationNode,
     DecisionNode,
     ExecutionNode,
-    UpdateMemoryNode
+    UpdateMemoryNode,
+    SharedMemoryRetrieveNode,
+    SharedMemoryUpdateNode
 )
 
 
@@ -17,26 +18,37 @@ def create_agent_flow():
     Create exploration flow for a single Agent
     
     Flow structure:
-    Perception -> RetrieveMemory -> Communication -> Decision -> Execution -> UpdateMemory
-                                                                                 |
-                                                                                 v
-                                                              "continue" -> (loop back to Perception)
-                                                              "end" -> (finish)
+    Perception -> SharedMemoryRetrieve -> Communication -> Decision -> Execution -> UpdateMemory -> SharedMemoryUpdate
+                                                                                                          |
+                                                                                                          v
+                                                                                       "continue" -> (loop back to Perception)
+                                                                                       "end" -> (finish)
+    
+    Memory retrieval and storage are handled by SharedMemoryRetrieveNode and SharedMemoryUpdateNode,
+    which interact with the centralized shared memory server.
     """
     # Create nodes
     perception = PerceptionNode()
-    retrieve = RetrieveMemoryNode()
+    shared_retrieve = SharedMemoryRetrieveNode()
     communicate = CommunicationNode()
     decide = DecisionNode(max_retries=3)  # Decision node allows retries
     execute = ExecutionNode()
     update = UpdateMemoryNode()
+    shared_update = SharedMemoryUpdateNode()
     
     # Connect nodes
-    perception >> retrieve >> communicate >> decide >> execute >> update
+    # Perception → SharedMemoryRetrieve → Communication → Decision → Execution → UpdateMemory → SharedMemoryUpdate
+    perception >> shared_retrieve >> communicate >> decide >> execute >> update
     
-    # Branch after memory update
-    update - "continue" >> perception  # Continue exploration, loop back to perception
-    update - "end"      # End (no subsequent nodes)
+    # UpdateMemory branches:
+    # - "continue" goes to SharedMemoryUpdate, which then loops back
+    # - "end" goes to SharedMemoryUpdate, which then ends
+    update - "continue" >> shared_update
+    update - "end" >> shared_update
+    
+    # Branch after shared memory update
+    shared_update - "continue" >> perception  # Continue exploration, loop back to perception
+    shared_update - "end"      # End (no subsequent nodes)
     
     # Create Flow
     flow = Flow(start=perception)
@@ -50,8 +62,8 @@ if __name__ == "__main__":
     flow = create_agent_flow()
     print("Flow created successfully!")
     print("\nFlow structure:")
-    print("  Perception -> RetrieveMemory -> Communication -> Decision -> Execution -> UpdateMemory")
-    print("                                                                              |")
-    print("                                                   'continue' -> (loop back) ")
-    print("                                                   'end' -> (finish)")
+    print("  Perception → SharedMemoryRetrieve → Communication → Decision → Execution → UpdateMemory → SharedMemoryUpdate")
+    print("                                                                                                |")
+    print("                                                                         'continue' → (loop back)")
+    print("                                                                         'end' → (finish)")
 

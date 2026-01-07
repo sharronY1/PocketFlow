@@ -11,6 +11,17 @@
         "model": "claude-3-5-haiku"
     },
     "max_steps": 105,
-    "env_server_url": "http://localhost:8000"
+    "env_server_url": "http://localhost:8000",
+    "shared_memory": {
+        "server_url": "http://localhost:8001",
+        "visual_feature_dim": 512,
+        "description_embedding_dim": 384,
+        "visual_similarity_threshold": 0.7,
+        "description_similarity_threshold": 0.7,
+        "same_object_threshold": 0.92,
+        "similarity_fusion_alpha": 0.6,
+        "feature_aggregation_weight": 0.8,
+        "top_k_search": 10
+    }
 }
 
