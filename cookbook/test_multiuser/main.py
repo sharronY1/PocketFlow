@@ -3,7 +3,7 @@ Multi-Agent XR Environment Exploration System - Main Program
 """
 import os
 import sys
-from utils import create_environment, create_shared_memory, create_memory
+from utils import create_environment, create_memory
 from utils.perception_interface import create_perception, PerceptionInterface
 from utils.window_manager import find_and_focus_meta_xr_simulator
 from utils.config_loader import get_config_value, sync_unity_config
@@ -12,13 +12,12 @@ import time
 import argparse
 
 
-def run_agent(agent_id: str, shared_memory: dict, perception: PerceptionInterface, max_steps: int = 20):
+def run_agent(agent_id: str, perception: PerceptionInterface, max_steps: int = 20):
     """
     Run exploration flow for a single agent
     
     Args:
         agent_id: Agent identifier
-        shared_memory: Shared memory structure (replaces global_env for Unity mode)
         perception: Perception interface instance
         max_steps: Maximum exploration steps
     """
@@ -26,42 +25,42 @@ def run_agent(agent_id: str, shared_memory: dict, perception: PerceptionInterfac
     print(f"Starting {agent_id}...")
     print(f"{'='*60}\n")
     
-    # Create agent's private shared store
-    agent_shared = {
+    # Create agent's memory store (renamed from agent_shared)
+    memory = {
+        # Basic identification
         "agent_id": agent_id,
-        "shared_memory": shared_memory,  # Shared memory accessible by all agents
-        "perception": perception,  # Add perception interface
+        "perception": perception,
+        
+        # Position and step tracking
         "position": 0,
         "step_count": 0,
+        "max_steps": max_steps,
         
-        # Memory system
+        # Episodic memory system (FAISS vector index + texts)
         "memory_index": create_memory(dimension=384),
         "memory_texts": [],
         
-        # Current state
-        "visible_objects": [],
-        "retrieved_memories": [],
-        "other_agent_messages": [],
+        # Current observation state (updated each step)
+        "visible_objects": {},  # dict format: {object_name: position_description}
+        "visible_caption": "",  # text description of current view
+        "retrieved_memories": [],  # top-k memories from FAISS search
+        "other_agent_messages": [],  # messages received from other agents
         
-        # Decision results
+        # Decision results (current step)
         "action": None,
         "action_reason": "",
         "message_to_others": "",
         
-        # Exploration history
-        "explored_objects": set(),
-        "action_history": []
+        # Exploration history (accumulated)
+        "explored_objects": set(),  # all objects discovered by this agent
+        "action_history": []  # list of {step, position, action, visible, new_objects}
     }
-    
-    # Initialize agent position in shared memory
-    if shared_memory:
-        shared_memory["agent_positions"][agent_id] = 0
     
     # Create and run flow
     flow = create_agent_flow()
     
     try:
-        flow.run(agent_shared)
+        flow.run(memory)
     except Exception as e:
         print(f"\n[{agent_id}] Error: {e}")
         import traceback
@@ -71,19 +70,21 @@ def run_agent(agent_id: str, shared_memory: dict, perception: PerceptionInterfac
     print(f"\n{'='*60}")
     print(f"{agent_id} Exploration Summary")
     print(f"{'='*60}")
-    print(f"Total steps: {agent_shared['step_count']}")
-    print(f"Final position: {agent_shared['position']}")
-    print(f"Unique objects explored: {len(agent_shared['explored_objects'])}")
-    print(f"Objects: {agent_shared['explored_objects']}")
-    print(f"Memories stored: {len(agent_shared['memory_texts'])}")
+    print(f"Total steps: {memory['step_count']}")
+    print(f"Final position: {memory['position']}")
+    print(f"Unique objects explored: {len(memory['explored_objects'])}")
+    print(f"Objects: {memory['explored_objects']}")
+    print(f"Memories stored: {len(memory['memory_texts'])}")
     
     # Show sample memories (first 3)
-    if agent_shared['memory_texts']:
+    if memory['memory_texts']:
         print(f"\nSample memories:")
-        for i, mem in enumerate(agent_shared['memory_texts'][:3], 1):
+        for i, mem in enumerate(memory['memory_texts'][:3], 1):
             print(f"  {i}. {mem[:120]}...")
     
     print(f"{'='*60}\n")
+    
+    return memory
 
 
 def main(perception_type: str = "mock", agent_id: str = "Agent"):
@@ -104,38 +105,26 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
     
     # Read max_steps from config file
     max_steps_default = get_config_value("max_steps", 105 if perception_type in ["unity", "unity-camera", "unity3d"] else 3)
-    
-    # Create shared memory for Unity mode (dynamic object discovery)
-    # For mock mode, still use create_environment with preset objects
-    print("\n[System] Creating shared memory...")
-    if perception_type in ["unity", "unity-camera", "unity3d"]:
-        # Unity mode: use shared memory where objects are discovered dynamically
-        shared_memory = create_shared_memory()
-        shared_memory["max_steps"] = int(os.getenv("MAX_STEPS", str(max_steps_default)))
-        print(f"[System] Shared memory created for {perception_type} mode (objects will be discovered dynamically)")
-        print(f"[System] Max steps: {shared_memory['max_steps']}")
-    elif perception_type == "mock":
-        # Mock mode: use preset environment with predefined objects
-        shared_memory = create_environment(num_positions=10)
-        shared_memory["max_steps"] = int(os.getenv("MAX_STEPS", str(max_steps_default)))
-        print(f"[System] Mock environment created with {shared_memory['num_positions']} positions")
-        print(f"[System] Max steps: {shared_memory['max_steps']}")
-        print("\n[System] Environment layout:")
-        for pos in sorted(shared_memory["objects"].keys()):
-            print(f"  Position {pos}: {shared_memory['objects'][pos]}")
+    max_steps = int(os.getenv("MAX_STEPS", str(max_steps_default)))
     
     # Create perception interface
     print(f"\n[System] Creating {perception_type} perception interface...")
     if perception_type == "mock":
-        # perception is a mock perception interface
-        perception = create_perception("mock", env=shared_memory)
+        # Mock mode: use preset environment with predefined objects
+        mock_env = create_environment(num_positions=10)
+        print(f"[System] Mock environment created with {mock_env['num_positions']} positions")
+        print("\n[System] Environment layout:")
+        for pos in sorted(mock_env["objects"].keys()):
+            print(f"  Position {pos}: {mock_env['objects'][pos]}")
+        perception = create_perception("mock", env=mock_env)
         print("[System] Using MockPerception (simulated environment)")
     elif perception_type == "xr":
         # TODO: Configure real XR client
         # xr_client = YourXRClient(host="localhost", port=8080)
         # perception = create_perception("xr", xr_client=xr_client, config={...})
         print("[System] XR perception not yet implemented, falling back to mock")
-        perception = create_perception("mock", env=shared_memory)
+        mock_env = create_environment(num_positions=10)
+        perception = create_perception("mock", env=mock_env)
     elif perception_type == "unity":
         # Find and focus Meta XR Simulator window
         print("\n[System] Attempting to find and focus Meta XR Simulator window...")
@@ -213,10 +202,11 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
     
     env_info = perception.get_environment_info()
     print(f"[System] Environment info: {env_info}")
+    print(f"[System] Max steps: {max_steps}")
     
     print("\n[System] Starting agent...")
     start_time = time.time()
-    run_agent(agent_id, shared_memory, perception, 15)
+    final_memory = run_agent(agent_id, perception, max_steps)
     elapsed_time = time.time() - start_time
     
     # Print overall summary
@@ -224,27 +214,8 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
     print("FINAL SYSTEM SUMMARY")
     print("="*60)
     print(f"Total execution time: {elapsed_time:.2f} seconds")
-    
-    # Print shared memory summary
-    if "objects" in shared_memory:
-        objects = shared_memory["objects"]
-        print(f"Total unique objects discovered by all agents: {len(objects)}")
-        print(f"Objects: {objects}")
-    else:
-        print("No objects discovered (shared memory not used)")
-    
-    print(f"\nFinal agent positions:")
-    for aid, pos in shared_memory.get("agent_positions", {}).items():
-        print(f"  {aid}: position {pos}")
-    
-    # Print message history
-    if "message_history" in shared_memory and shared_memory["message_history"]:
-        print(f"\nMessage history ({len(shared_memory['message_history'])} messages):")
-        for i, msg in enumerate(shared_memory["message_history"][:10], 1):  # Show first 10
-            print(f"  {i}. {msg['sender']} → {msg['recipient']}: {msg['message'][:80]}")
-        if len(shared_memory["message_history"]) > 10:
-            print(f"  ... and {len(shared_memory['message_history']) - 10} more messages")
-    
+    print(f"Total unique objects discovered: {len(final_memory['explored_objects'])}")
+    print(f"Objects: {final_memory['explored_objects']}")
     print("="*60)
     
     print("\n[System] Exploration completed!")
@@ -256,4 +227,3 @@ if __name__ == "__main__":
     parser.add_argument("--agent-id", default=os.getenv("AGENT_ID", "Agent"), help="Unique agent id")
     args = parser.parse_args()
     main(args.perception, args.agent_id)
-

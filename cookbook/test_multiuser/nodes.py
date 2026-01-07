@@ -16,9 +16,6 @@ import threading
 import os
 import re
 
-# Global lock to protect shared resources (message queue, etc.)
-env_lock = threading.Lock()
-
 
 class PerceptionNode(Node):
     """
@@ -27,19 +24,14 @@ class PerceptionNode(Node):
     Uses PerceptionInterface abstraction layer, supports switching between different perception implementations
     """
     
-    def prep(self, shared):
+    def prep(self, memory):
         # Update position counter at the start of iteration (before perception)
-        shared["position"] += 1
+        memory["position"] += 1
         
-        # Get perception interface from shared store
-        perception = shared["perception"]
-        agent_id = shared["agent_id"]
-        position = shared["position"]
-        
-        # Update agent position in shared memory
-        if shared.get("shared_memory"):
-            with env_lock:
-                shared["shared_memory"]["agent_positions"][shared["agent_id"]] = position
+        # Get perception interface from memory store
+        perception = memory["perception"]
+        agent_id = memory["agent_id"]
+        position = memory["position"]
         
         return perception, agent_id, position
     
@@ -53,8 +45,8 @@ class PerceptionNode(Node):
         
         return visible
     
-    def post(self, shared, prep_res, exec_res):
-        shared["visible_objects"] = exec_res
+    def post(self, memory, prep_res, exec_res):
+        memory["visible_objects"] = exec_res
         # If unity screenshot path is present, use summarize_img to get description and objects with positions
         # Example of exec_res: ["screenshot:E:/.../img.png"]
         description = None
@@ -66,35 +58,35 @@ class PerceptionNode(Node):
             objects_with_positions = summary.get("objects", {})
             # Update visible_objects with object-position dict
             if objects_with_positions:
-                shared["visible_objects"] = objects_with_positions
+                memory["visible_objects"] = objects_with_positions
         
         # Set visible_caption: use description if available, otherwise format visible_objects
         if description:
-            shared["visible_caption"] = description
-        elif isinstance(shared["visible_objects"], dict):
+            memory["visible_caption"] = description
+        elif isinstance(memory["visible_objects"], dict):
             # Format dict as "object1 (position1), object2 (position2), ..."
-            shared["visible_caption"] = ", ".join(
-                f"{obj} ({pos})" for obj, pos in shared["visible_objects"].items()
+            memory["visible_caption"] = ", ".join(
+                f"{obj} ({pos})" for obj, pos in memory["visible_objects"].items()
             )
         else:
-            shared["visible_caption"] = ", ".join(map(str, shared["visible_objects"]))
+            memory["visible_caption"] = ", ".join(map(str, memory["visible_objects"]))
         
-        print(f"[{shared['agent_id']}] Position {shared['position']}: sees {shared['visible_objects']}")
+        print(f"[{memory['agent_id']}] Position {memory['position']}: sees {memory['visible_objects']}")
         if description:
-            print(f"[{shared['agent_id']}] Description: {description}")
+            print(f"[{memory['agent_id']}] Description: {description}")
         return "default"
 
 
 class RetrieveMemoryNode(Node):
     """Memory retrieval node: Retrieve relevant history from FAISS"""
     
-    def prep(self, shared):
-        visible_caption = shared.get("visible_caption") or ", ".join(map(str, shared.get("visible_objects", [])))
-        position = shared["position"]
+    def prep(self, memory):
+        visible_caption = memory.get("visible_caption") or ", ".join(map(str, memory.get("visible_objects", [])))
+        position = memory["position"]
         
         # Construct query text using caption (works for both mock text and image-derived caption)
         query = f"What do I know about position {position} with what I see: {visible_caption}?"
-        return query, shared["memory_index"], shared["memory_texts"]
+        return query, memory["memory_index"], memory["memory_texts"]
     
     def exec(self, prep_res):
         query, index, memory_texts = prep_res
@@ -107,15 +99,15 @@ class RetrieveMemoryNode(Node):
         
         return results
     
-    def post(self, shared, prep_res, exec_res):
-        shared["retrieved_memories"] = exec_res
+    def post(self, memory, prep_res, exec_res):
+        memory["retrieved_memories"] = exec_res
         
         if exec_res:
-            print(f"[{shared['agent_id']}] Retrieved {len(exec_res)} memories:")
+            print(f"[{memory['agent_id']}] Retrieved {len(exec_res)} memories:")
             for i, (text, dist) in enumerate(exec_res[:], 1):
                 print(f"  {i}. {text[:80]}...")
         else:
-            print(f"[{shared['agent_id']}] No memories found (first time)")
+            print(f"[{memory['agent_id']}] No memories found (first time)")
         
         return "default"
 
@@ -123,8 +115,8 @@ class RetrieveMemoryNode(Node):
 class CommunicationNode(Node):
     """Communication node: Read messages from other agents"""
     
-    def prep(self, shared):
-        return shared["agent_id"], shared["perception"]
+    def prep(self, memory):
+        return memory["agent_id"], memory["perception"]
     
     def exec(self, prep_res):
         agent_id, perception = prep_res
@@ -135,11 +127,11 @@ class CommunicationNode(Node):
             messages = []
         return messages
     
-    def post(self, shared, prep_res, exec_res):
-        shared["other_agent_messages"] = exec_res
+    def post(self, memory, prep_res, exec_res):
+        memory["other_agent_messages"] = exec_res
         
         if exec_res:
-            print(f"[{shared['agent_id']}] Received {len(exec_res)} messages:")
+            print(f"[{memory['agent_id']}] Received {len(exec_res)} messages:")
             for msg in exec_res:
                 print(f"  From {msg['sender']}: {msg['message']}")
         
@@ -149,18 +141,18 @@ class CommunicationNode(Node):
 class DecisionNode(Node):
     """Decision node: Decide next action based on context"""
     
-    def prep(self, shared):
+    def prep(self, memory):
         # Collect all context needed for decision making
         context = {
-            "agent_id": shared["agent_id"],
-            "position": shared["position"],
-            "visible_objects": shared["visible_objects"],
-            "retrieved_memories": shared["retrieved_memories"],
-            "other_agent_messages": shared["other_agent_messages"],
-            "explored_objects": list(shared["explored_objects"]),
-            "step_count": shared["step_count"],
-            "perception_type": shared.get("perception", {}).get_environment_info().get("type", "unknown"),
-            "action_history": shared.get("action_history", [])  # Add action history to context
+            "agent_id": memory["agent_id"],
+            "position": memory["position"],
+            "visible_objects": memory["visible_objects"],
+            "retrieved_memories": memory["retrieved_memories"],
+            "other_agent_messages": memory["other_agent_messages"],
+            "explored_objects": list(memory["explored_objects"]),
+            "step_count": memory["step_count"],
+            "perception_type": memory.get("perception", {}).get_environment_info().get("type", "unknown"),
+            "action_history": memory.get("action_history", [])  # Add action history to context
         }
         return context
     
@@ -330,12 +322,12 @@ message_to_others: Information to share with other agents (optional)
         
         return result
     
-    def post(self, shared, prep_res, exec_res):
-        shared["action"] = exec_res["action"]
-        shared["action_reason"] = exec_res.get("reason", "")
-        shared["message_to_others"] = exec_res.get("message_to_others", "")
+    def post(self, memory, prep_res, exec_res):
+        memory["action"] = exec_res["action"]
+        memory["action_reason"] = exec_res.get("reason", "")
+        memory["message_to_others"] = exec_res.get("message_to_others", "")
         
-        print(f"[{shared['agent_id']}] Decision: {exec_res['action']}")
+        print(f"[{memory['agent_id']}] Decision: {exec_res['action']}")
         print(f"  Reason: {exec_res['reason']}")
         
         return "default"
@@ -348,10 +340,10 @@ class ExecutionNode(Node):
     Uses PerceptionInterface to execute actions, supports different environment implementations
     """
     
-    def prep(self, shared):
-        perception = shared["perception"]
-        agent_id = shared["agent_id"]
-        action = shared["action"]
+    def prep(self, memory):
+        perception = memory["perception"]
+        agent_id = memory["agent_id"]
+        action = memory["action"]
         
         return perception, agent_id, action
     
@@ -369,18 +361,18 @@ class ExecutionNode(Node):
 
         return new_state
     
-    def post(self, shared, prep_res, exec_res):
+    def post(self, memory, prep_res, exec_res):
         # Update step count
-        shared["step_count"] += 1
+        memory["step_count"] += 1
         
         # Note: visible_objects will be updated in the next PerceptionNode
         # ExecutionNode only updates position, not perception
         
         # Send message to other agents
-        if shared.get("message_to_others"):
-            agent_id = shared["agent_id"]
-            message = shared["message_to_others"]
-            perception = shared["perception"]
+        if memory.get("message_to_others"):
+            agent_id = memory["agent_id"]
+            message = memory["message_to_others"]
+            perception = memory["perception"]
             try:
                 perception.send_message(agent_id, "all", message)
                 print(f"[{agent_id}] Sent message: {message}")
@@ -394,77 +386,64 @@ class ExecutionNode(Node):
 
 
 class UpdateMemoryNode(Node):
-    """Memory update node: Store new exploration information in FAISS and update shared memory"""
+    """Memory update node: Store new exploration information in FAISS"""
     
-    def prep(self, shared):
+    def prep(self, memory):
         # Construct memory text with own experience
         memory_text = (
-            f"At position {shared['position']}, "
-            f"I saw {shared['visible_objects']}. "
-            f"I decided to {shared['action']}. "
-            f"Reason: {shared['action_reason']}"
+            f"At position {memory['position']}, "
+            f"I saw {memory['visible_objects']}. "
+            f"I decided to {memory['action']}. "
+            f"Reason: {memory['action_reason']}"
         )
         
         # Add messages from other agents (if any)
-        if shared.get("other_agent_messages"):
+        if memory.get("other_agent_messages"):
             messages_parts = []
-            for msg in shared["other_agent_messages"]:
+            for msg in memory["other_agent_messages"]:
                 messages_parts.append(f"{msg['sender']}: {msg['message']}")
             
             messages_summary = "; ".join(messages_parts)
             memory_text += f" | Context from others: {messages_summary}"
         
-        # Prepare data for shared memory update - use visible_objects directly
-        visible_objects = shared.get("visible_objects", {})
+        # Prepare data for memory update - use visible_objects directly
+        visible_objects = memory.get("visible_objects", {})
         # Handle both dict format (from summarize_img) and list format (fallback)
         if isinstance(visible_objects, dict):
             # Extract object names from dict keys
-            objects_for_shared = [
+            objects_list = [
                 obj for obj in visible_objects.keys()
                 if isinstance(obj, str) and not obj.startswith("screenshot:")
             ]
         elif isinstance(visible_objects, (list, set)):
             # Filter out screenshot paths (in case extraction failed)
-            objects_for_shared = [
+            objects_list = [
                 obj for obj in visible_objects 
                 if isinstance(obj, str) and not obj.startswith("screenshot:")
             ]
         else:
-            objects_for_shared = []
+            objects_list = []
         
-        return memory_text, shared["memory_index"], shared["memory_texts"], shared.get("shared_memory"), shared["agent_id"], shared["position"], objects_for_shared
+        return memory_text, memory["memory_index"], memory["memory_texts"], memory["agent_id"], memory["position"], objects_list
     
     def exec(self, prep_res):
-        memory_text, index, memory_texts, shared_memory, agent_id, position, objects_for_shared = prep_res
+        memory_text, index, memory_texts, agent_id, position, objects_list = prep_res
         
         # Get embedding
         embedding = get_embedding(memory_text)
         
-        # Add to private memory (FAISS)
+        # Add to episodic memory (FAISS)
         add_to_memory(index, embedding, memory_text, memory_texts)
         
-        # Update shared memory with discovered objects (if shared_memory exists)
-        if shared_memory is not None and objects_for_shared:
-            with env_lock:
-                # Ensure "objects" key exists in shared_memory
-                if "objects" not in shared_memory:
-                    shared_memory["objects"] = set()
-                
-                # Convert objects to set for easier handling
-                objects_set = set(obj.lower().strip() for obj in objects_for_shared if obj)
-                
-                # Update global objects set (only increases, never decreases)
-                shared_memory["objects"].update(objects_set)
-        
-        return memory_text, objects_for_shared
+        return memory_text, objects_list
     
-    def post(self, shared, prep_res, exec_res):
-        memory_text, objects_for_shared = exec_res
+    def post(self, memory, prep_res, exec_res):
+        memory_text, objects_list = exec_res
         
         # Calculate new objects (before updating explored_objects)
         # Filter out screenshot paths and normalize objects
         visible_objects_normalized = []
-        visible_objects = shared.get("visible_objects", {})
+        visible_objects = memory.get("visible_objects", {})
         if visible_objects:
             # Handle both dict format (from summarize_img) and list format (fallback)
             if isinstance(visible_objects, dict):
@@ -481,38 +460,36 @@ class UpdateMemoryNode(Node):
                 ]
         
         # Find new objects that are not in explored_objects yet
-        explored_set = shared.get("explored_objects", set())
+        explored_set = memory.get("explored_objects", set())
         new_objects = [
             obj for obj in visible_objects_normalized 
             if obj and obj not in explored_set
         ]
         
         # Record action history with new objects
-        shared["action_history"].append({
-            "step": shared["step_count"],
-            "position": shared["position"],
-            "action": shared["action"],
-            "visible": shared["visible_objects"],
+        memory["action_history"].append({
+            "step": memory["step_count"],
+            "position": memory["position"],
+            "action": memory["action"],
+            "visible": memory["visible_objects"],
             "new_objects": new_objects  # Only newly discovered objects
         })
         
         # Update explored_objects with discovered objects
-        if objects_for_shared:
-            objects_set = set(obj.lower().strip() for obj in objects_for_shared if obj)
-            shared["explored_objects"].update(objects_set)
+        if objects_list:
+            objects_set = set(obj.lower().strip() for obj in objects_list if obj)
+            memory["explored_objects"].update(objects_set)
         
-        print(f"[{shared['agent_id']}] Memory updated: {memory_text[:100]}...")
-        if objects_for_shared:
-            print(f"[{shared['agent_id']}] Discovered objects: {objects_for_shared}")
-            if shared.get("shared_memory"):
-                total_objects = len(shared["shared_memory"]["objects"])
-                print(f"[{shared['agent_id']}] Total unique objects in shared memory: {total_objects}")
+        print(f"[{memory['agent_id']}] Memory updated: {memory_text[:100]}...")
+        if objects_list:
+            print(f"[{memory['agent_id']}] Discovered objects: {objects_list}")
+            print(f"[{memory['agent_id']}] Total unique objects explored: {len(memory['explored_objects'])}")
         
         # Decide whether to continue exploration
-        max_steps = shared.get("global_env", {}).get("max_steps", shared.get("shared_memory", {}).get("max_steps", 20))
+        max_steps = memory.get("max_steps", 20)
         
-        if shared["step_count"] >= max_steps:
-            print(f"[{shared['agent_id']}] Reached max steps ({max_steps}), ending exploration")
+        if memory["step_count"] >= max_steps:
+            print(f"[{memory['agent_id']}] Reached max steps ({max_steps}), ending exploration")
             return "end"
         
         return "continue"
