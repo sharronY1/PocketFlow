@@ -152,3 +152,83 @@ Return ONLY the JSON object, no additional text or markdown."""
     except Exception as e:
         print(f"[WARNING] summarize_img failed: {e}")
         return fallback_result
+
+
+def compare_img(
+    prev_image_path: str,
+    curr_image_path: str,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    model: Optional[str] = None,
+    temperature: float = 0.0,
+) -> str:
+    """
+    Compare two images and describe the changes/differences between them.
+    
+    Args:
+        prev_image_path: Path to the previous screenshot (taken earlier)
+        curr_image_path: Path to the current screenshot (taken now)
+        api_key: OpenAI API key (optional, falls back to config/env)
+        base_url: OpenAI API base URL (optional)
+        model: Model name to use (optional)
+        temperature: Sampling temperature
+        
+    Returns:
+        A string describing the changes between the two images in English
+    """
+    fallback_result = "Unable to compare images."
+    
+    # Fallback if client is not available
+    if OpenAI is None:
+        return fallback_result
+
+    # Priority: parameter > config file > environment variable
+    api_key = api_key or get_config_value("vision_llm.api_key") or os.getenv("OPENAI_API_KEY", "")
+    if not api_key:
+        return fallback_result
+
+    base_url = base_url or get_config_value("vision_llm.base_url") or os.getenv("OPENAI_BASE_URL")
+    model = model or get_config_value("vision_llm.model") or os.getenv("OPENAI_VISION_MODEL", os.getenv("OPENAI_MODEL", "gemini-2.5-pro"))
+
+    try:
+        client = OpenAI(api_key=api_key, base_url=base_url)
+        prev_data_url = _to_data_url(prev_image_path)
+        curr_data_url = _to_data_url(curr_image_path)
+        
+        prompt = """You are given two consecutive screenshots from a 3D environment exploration.
+
+Image 1 (PREVIOUS): The screenshot taken at the previous timestep.
+Image 2 (CURRENT): The screenshot taken at the current timestep.
+
+Please briefly summarize the changes or differences between these two images. Focus on:
+1. Changes in viewpoint/camera position (e.g., moved forward, turned left)
+2. Objects that appeared or disappeared from view
+3. Any notable environmental changes
+
+Be concise and factual. If the images are nearly identical, state that there are minimal changes.
+
+Return ONLY a brief text description of the changes (1-3 sentences), no JSON or markdown formatting."""
+
+        user_content = [
+            {"type": "text", "text": prompt},
+            {"type": "text", "text": "Image 1 (PREVIOUS):"},
+            {"type": "image_url", "image_url": {"url": prev_data_url}},
+            {"type": "text", "text": "Image 2 (CURRENT):"},
+            {"type": "image_url", "image_url": {"url": curr_data_url}}
+        ]
+
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": user_content}],
+            temperature=temperature,
+        )
+        
+        text = resp.choices[0].message.content or ""
+        text = text.strip()
+        print(f"[DEBUG] compare_img result: {text}")
+        
+        return text if text else fallback_result
+        
+    except Exception as e:
+        print(f"[WARNING] compare_img failed: {e}")
+        return fallback_result

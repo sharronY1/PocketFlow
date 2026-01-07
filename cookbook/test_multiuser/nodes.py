@@ -8,13 +8,67 @@ from utils import (
     search_memory,
     add_to_memory,
 )
-from utils.vision import summarize_img
+from utils.vision import summarize_img, compare_img
 import time
 from utils.perception_interface import PerceptionInterface
 import yaml
 import threading
 import os
 import re
+import glob
+from pathlib import Path
+
+
+def find_previous_screenshot(current_screenshot_path: str, agent_id: str) -> str:
+    """
+    Find the previous screenshot for the given agent based on timestamp.
+    
+    Args:
+        current_screenshot_path: Path to the current screenshot
+        agent_id: Agent identifier to filter screenshots
+        
+    Returns:
+        Path to the previous screenshot, or empty string if not found
+    """
+    if not current_screenshot_path:
+        return ""
+    
+    current_path = Path(current_screenshot_path)
+    screenshot_dir = current_path.parent
+    
+    if not screenshot_dir.exists():
+        return ""
+    
+    # Find all screenshots for this agent in the same directory
+    # Pattern: {agent_id}_*.png
+    pattern = str(screenshot_dir / f"{agent_id}_*.png")
+    all_screenshots = glob.glob(pattern)
+    
+    if len(all_screenshots) < 2:
+        # No previous screenshot available
+        return ""
+    
+    # Sort by modification time (oldest first)
+    all_screenshots_sorted = sorted(all_screenshots, key=lambda p: Path(p).stat().st_mtime)
+    
+    # Find the index of current screenshot
+    current_abs = str(current_path.resolve())
+    try:
+        current_idx = next(
+            i for i, p in enumerate(all_screenshots_sorted) 
+            if str(Path(p).resolve()) == current_abs
+        )
+    except StopIteration:
+        # Current screenshot not found in list, return the second most recent
+        if len(all_screenshots_sorted) >= 2:
+            return all_screenshots_sorted[-2]
+        return ""
+    
+    # Return the screenshot before the current one
+    if current_idx > 0:
+        return all_screenshots_sorted[current_idx - 1]
+    
+    return ""
 
 
 class PerceptionNode(Node):
@@ -50,10 +104,12 @@ class PerceptionNode(Node):
         # If unity screenshot path is present, use summarize_img to get description and objects with positions
         # Example of exec_res: ["screenshot:E:/.../img.png"]
         description = None
+        current_image_path = None
+        
         if exec_res and isinstance(exec_res[0], str) and exec_res[0].startswith("screenshot:"):
-            image_path = exec_res[0].split("screenshot:", 1)[1]
+            current_image_path = exec_res[0].split("screenshot:", 1)[1]
             # summarize_img returns {"description": "...", "objects": {"chair": "front-near", ...}}
-            summary = summarize_img(image_path)
+            summary = summarize_img(current_image_path)
             description = summary.get("description")
             objects_with_positions = summary.get("objects", {})
             # Update visible_objects with object-position dict
@@ -74,6 +130,30 @@ class PerceptionNode(Node):
         print(f"[{memory['agent_id']}] Position {memory['position']}: sees {memory['visible_objects']}")
         if description:
             print(f"[{memory['agent_id']}] Description: {description}")
+        
+        # Compare with previous screenshot if available
+        if current_image_path:
+            agent_id = memory["agent_id"]
+            prev_image_path = find_previous_screenshot(current_image_path, agent_id)
+            
+            if prev_image_path:
+                print(f"[{agent_id}] Comparing with previous screenshot: {prev_image_path}")
+                env_change_text = compare_img(prev_image_path, current_image_path)
+                
+                # Store env change in memory
+                if "env_change" not in memory:
+                    memory["env_change"] = []
+                memory["env_change"].append({
+                    "step": memory["position"],
+                    "change": env_change_text,
+                    "prev_image": prev_image_path,
+                    "curr_image": current_image_path
+                })
+                
+                print(f"[{agent_id}] Environment change: {env_change_text}")
+            else:
+                print(f"[{agent_id}] No previous screenshot found (first observation)")
+        
         return "default"
 
 
@@ -152,7 +232,8 @@ class DecisionNode(Node):
             "explored_objects": list(memory["explored_objects"]),
             "step_count": memory["step_count"],
             "perception_type": memory.get("perception", {}).get_environment_info().get("type", "unknown"),
-            "action_history": memory.get("action_history", [])  # Add action history to context
+            "action_history": memory.get("action_history", []),  # Add action history to context
+            "env_change": memory.get("env_change", [])  # Add environment change history
         }
         return context
     
@@ -193,6 +274,19 @@ class DecisionNode(Node):
             history_section = f"Recent action history (last {len(latest_history)} steps):\n{history_text}"
         else:
             history_section = "No previous action history (this is the first step)"
+        
+        # Format environment change history (last 5 entries)
+        env_change_history = context.get("env_change", [])
+        latest_env_changes = env_change_history[-5:] if len(env_change_history) > 5 else env_change_history
+        
+        if latest_env_changes:
+            env_change_text = "\n".join([
+                f"  Step {record['step']}: {record['change']}"
+                for record in latest_env_changes
+            ])
+            env_change_section = f"Recent environment changes (comparing consecutive screenshots):\n{env_change_text}"
+        else:
+            env_change_section = "No environment change history yet (first observation or screenshots not available)"
         
         # Determine available actions based on perception type
         perception_type = context.get("perception_type", "unknown")
@@ -241,6 +335,8 @@ Current state:
 - Steps taken: {context['step_count']}
 
 {history_section}
+
+{env_change_section}
 
 Relevant historical memories:
 {memories_text}

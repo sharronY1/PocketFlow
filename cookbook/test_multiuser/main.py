@@ -53,7 +53,8 @@ def run_agent(agent_id: str, perception: PerceptionInterface, max_steps: int = 2
         
         # Exploration history (accumulated)
         "explored_objects": set(),  # all objects discovered by this agent
-        "action_history": []  # list of {step, position, action, visible, new_objects}
+        "action_history": [],  # list of {step, position, action, visible, new_objects}
+        "env_change": []  # list of {step, change, prev_image, curr_image} for environment changes
     }
     
     # Create and run flow
