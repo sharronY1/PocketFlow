@@ -1,17 +1,17 @@
 {
-    "unity_output_base_path": "E:\\CS_FYP\\output",
+    "unity_output_base_path": "D:\\output",
     "llm": {
-        "api_key": "sk-6zaYpyv2vu9O9ROZMbPEQzTImzSamkbLLG7VCQnMzfCn36Kk",
-        "base_url": "https://api.xinyun.ai/v1",
-        "model": "claude-3-5-haiku"
+        "api_key": "sk-d7xl1uSrUhkgSdg9ciIhKBay5MDZlapxcZtlaGrOoE99VMoa",
+        "base_url": "https://api.nuwaapi.com/v1",
+        "model": "gpt-4o"
     },
     "vision_llm": {
-        "api_key": "sk-6zaYpyv2vu9O9ROZMbPEQzTImzSamkbLLG7VCQnMzfCn36Kk",
-        "base_url": "https://api.xinyun.ai/v1",
-        "model": "claude-3-5-haiku"
+        "api_key": "sk-d7xl1uSrUhkgSdg9ciIhKBay5MDZlapxcZtlaGrOoE99VMoa",
+        "base_url": "https://api.nuwaapi.com/v1",
+        "model": "gpt-4o"
     },
     "max_steps": 105,
-    "env_server_url": "http://localhost:8000",
+    "env_server_url": "http://10.13.149.168:8000",
     "shared_memory": {
         "server_url": "http://localhost:8001",
         "visual_feature_dim": 512,
@@ -24,4 +24,3 @@
         "top_k_search": 10
     }
 }
-
