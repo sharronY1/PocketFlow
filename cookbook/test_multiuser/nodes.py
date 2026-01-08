@@ -1,5 +1,17 @@
 """
 Node definitions for Multi-Agent exploration system
+
+Synchronization Mode:
+====================
+When sync_enabled=True in private_property, PerceptionNode will:
+1. Report "ready" to the sync server (Coordinator)
+2. Block and wait for capture signal from Coordinator
+3. Execute screenshot only after receiving signal
+4. This ensures all agents capture screenshots at the same time
+
+To enable sync mode, set in private_property:
+    private_property["sync_enabled"] = True
+    private_property["sync_server_url"] = "http://localhost:8000"
 """
 from pocketflow import Node
 from utils import (
@@ -22,6 +34,7 @@ import re
 import glob
 from pathlib import Path
 import numpy as np
+import requests
 
 
 def find_previous_screenshot(current_screenshot_path: str, agent_id: str) -> str:
@@ -80,7 +93,25 @@ class PerceptionNode(Node):
     """
     Perception node: Get current environment state
     
-    Uses PerceptionInterface abstraction layer, supports switching between different perception implementations
+    Uses PerceptionInterface abstraction layer, supports switching between different perception implementations.
+    
+    Synchronization Mode (sync_enabled=True):
+    =========================================
+    When enabled, this node coordinates with a central Coordinator to ensure
+    all agents capture screenshots at the same time:
+    
+    1. Report "ready" to sync server → wait for other agents
+    2. Block until Coordinator sends capture signal
+    3. Execute screenshot
+    4. Continue with post-processing
+    
+    This is useful for multi-agent scenarios where agents run on different
+    computers and need to capture synchronized observations.
+    
+    Configuration (in private_property):
+        sync_enabled: bool - Enable/disable sync mode (default: False)
+        sync_server_url: str - URL of the sync server (default: http://localhost:8000)
+        sync_wait_timeout: float - Max wait time for capture signal in seconds (default: 60)
     """
     
     def prep(self, private_property):
@@ -92,17 +123,136 @@ class PerceptionNode(Node):
         agent_id = private_property["agent_id"]
         position = private_property["position"]
         
-        return perception, agent_id, position
+        # Get sync configuration
+        sync_enabled = private_property.get("sync_enabled", False)
+        sync_server_url = private_property.get("sync_server_url", "http://localhost:8000")
+        sync_wait_timeout = private_property.get("sync_wait_timeout", 60.0)
+        
+        return {
+            "perception": perception,
+            "agent_id": agent_id,
+            "position": position,
+            "sync_enabled": sync_enabled,
+            "sync_server_url": sync_server_url,
+            "sync_wait_timeout": sync_wait_timeout
+        }
     
     def exec(self, prep_res):
-        perception, agent_id, position = prep_res
+        """
+        执行阶段：获取环境感知（可能需要同步等待）
         
+        Synchronization Flow:
+        1. If sync_enabled, report ready to Coordinator
+        2. If sync_enabled, block and wait for capture signal
+        3. Execute screenshot via perception interface
+        """
+        perception = prep_res["perception"]
+        agent_id = prep_res["agent_id"]
+        position = prep_res["position"]
+        sync_enabled = prep_res["sync_enabled"]
+        sync_server_url = prep_res["sync_server_url"]
+        sync_wait_timeout = prep_res["sync_wait_timeout"]
+        
+        # === 同步模式：等待 Coordinator 的截屏信号 ===
+        if sync_enabled:
+            # Step 1: 向 Coordinator 报告已到达 PerceptionNode
+            self._report_ready(sync_server_url, agent_id)
+            
+            # Step 2: 阻塞等待 Coordinator 的截屏信号
+            capture_ok = self._wait_for_capture_signal(
+                sync_server_url, 
+                agent_id, 
+                sync_wait_timeout
+            )
+            
+            if not capture_ok:
+                print(f"[{agent_id}] Warning: Timeout waiting for capture signal, proceeding anyway")
+        
+        # Step 3: 执行截屏
         # Use perception interface to get visible objects
         # Note: Thread safety is handled by the perception implementation itself
-        # ask for screenshot and return the path
         visible = perception.get_visible_objects(agent_id, position)
         
         return visible
+    
+    def _report_ready(self, server_url: str, agent_id: str) -> bool:
+        """
+        向 Coordinator 报告已准备好截屏
+        
+        调用 POST /sync/ready 告知 Coordinator 本 Agent 已到达 PerceptionNode
+        
+        Args:
+            server_url: 同步服务器地址
+            agent_id: Agent 标识符
+            
+        Returns:
+            True if successfully reported, False otherwise
+        """
+        try:
+            resp = requests.post(
+                f"{server_url}/sync/ready",
+                json={"agent_id": agent_id},
+                timeout=10
+            )
+            resp.raise_for_status()
+            
+            data = resp.json()
+            ready_count = data.get("ready_count", 0)
+            expected_count = data.get("expected_count", 0)
+            
+            print(f"[{agent_id}] Reported ready to Coordinator ({ready_count}/{expected_count} ready)")
+            return True
+            
+        except requests.RequestException as e:
+            print(f"[{agent_id}] Error reporting ready to Coordinator: {e}")
+            return False
+    
+    def _wait_for_capture_signal(
+        self, 
+        server_url: str, 
+        agent_id: str, 
+        timeout: float
+    ) -> bool:
+        """
+        阻塞等待 Coordinator 的截屏信号
+        
+        调用 POST /sync/wait_capture 阻塞等待，直到 Coordinator 调用 trigger_capture
+        
+        Args:
+            server_url: 同步服务器地址
+            agent_id: Agent 标识符
+            timeout: 最大等待时间（秒）
+            
+        Returns:
+            True if capture signal received, False if timeout
+        """
+        print(f"[{agent_id}] Waiting for synchronized capture signal...")
+        
+        try:
+            resp = requests.post(
+                f"{server_url}/sync/wait_capture",
+                json={"agent_id": agent_id, "timeout": timeout},
+                timeout=timeout + 5  # HTTP timeout slightly longer than wait timeout
+            )
+            resp.raise_for_status()
+            
+            data = resp.json()
+            should_capture = data.get("should_capture", False)
+            
+            if should_capture:
+                print(f"[{agent_id}] Received capture signal from Coordinator!")
+                return True
+            else:
+                error = data.get("error", "unknown")
+                print(f"[{agent_id}] Wait for capture failed: {error}")
+                return False
+                
+        except requests.Timeout:
+            print(f"[{agent_id}] HTTP request timeout waiting for capture signal")
+            return False
+        except requests.RequestException as e:
+            print(f"[{agent_id}] Error waiting for capture signal: {e}")
+            return False
     
     def post(self, private_property, prep_res, exec_res):
         private_property["visible_objects"] = exec_res

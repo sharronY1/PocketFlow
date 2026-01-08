@@ -1,5 +1,17 @@
 """
 Multi-Agent XR Environment Exploration System - Main Program
+
+Synchronization Mode:
+====================
+When running with --sync flag, the agent will coordinate with a central
+Coordinator to ensure all agents capture screenshots at the same time.
+
+Usage:
+    # Without sync (original behavior)
+    python main.py --perception unity3d --agent-id Agent1
+    
+    # With sync (uses env_server_url from config.json by default)
+    python main.py --perception unity3d --agent-id Agent1 --sync
 """
 import os
 import sys
@@ -12,7 +24,14 @@ import time
 import argparse
 
 
-def run_agent(agent_id: str, perception: PerceptionInterface, max_steps: int = 20):
+def run_agent(
+    agent_id: str, 
+    perception: PerceptionInterface, 
+    max_steps: int = 20,
+    sync_enabled: bool = False,
+    sync_server_url: str = "http://localhost:8000",
+    sync_wait_timeout: float = 60.0
+):
     """
     Run exploration flow for a single agent
     
@@ -20,9 +39,14 @@ def run_agent(agent_id: str, perception: PerceptionInterface, max_steps: int = 2
         agent_id: Agent identifier
         perception: Perception interface instance
         max_steps: Maximum exploration steps
+        sync_enabled: Enable synchronized screenshot mode (default: False)
+        sync_server_url: URL of the sync server for coordination (default: http://localhost:8000)
+        sync_wait_timeout: Timeout for waiting capture signal in seconds (default: 60)
     """
     print(f"\n{'='*60}")
     print(f"Starting {agent_id}...")
+    if sync_enabled:
+        print(f"[Sync Mode] Enabled - will coordinate with {sync_server_url}")
     print(f"{'='*60}\n")
     
     # Create agent's private property store (each agent's local state)
@@ -35,6 +59,15 @@ def run_agent(agent_id: str, perception: PerceptionInterface, max_steps: int = 2
         "position": 0,
         "step_count": 0,
         "max_steps": max_steps,
+        
+        # === Synchronization configuration ===
+        # When sync_enabled=True, PerceptionNode will:
+        # 1. Report "ready" to the sync server
+        # 2. Wait for capture signal from Coordinator
+        # 3. Execute screenshot only after receiving signal
+        "sync_enabled": sync_enabled,
+        "sync_server_url": sync_server_url,
+        "sync_wait_timeout": sync_wait_timeout,
         
         # Current observation state (updated each step)
         "visible_objects": {},  # dict format: {object_name: position_description}
@@ -194,9 +227,26 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
     print(f"[System] Environment info: {env_info}")
     print(f"[System] Max steps: {max_steps}")
     
+    # Get sync configuration from arguments/environment
+    sync_enabled = os.getenv("SYNC_ENABLED", "false").lower() in ("true", "1", "yes")
+    sync_server_url = os.getenv("SYNC_SERVER_URL", "http://localhost:8000")
+    sync_wait_timeout = float(os.getenv("SYNC_WAIT_TIMEOUT", "60"))
+    
+    if sync_enabled:
+        print(f"\n[System] Sync mode enabled")
+        print(f"[System] Sync server: {sync_server_url}")
+        print(f"[System] Sync wait timeout: {sync_wait_timeout}s")
+    
     print("\n[System] Starting agent...")
     start_time = time.time()
-    final_private_property = run_agent(agent_id, perception, max_steps)
+    final_private_property = run_agent(
+        agent_id=agent_id,
+        perception=perception,
+        max_steps=max_steps,
+        sync_enabled=sync_enabled,
+        sync_server_url=sync_server_url,
+        sync_wait_timeout=sync_wait_timeout
+    )
     elapsed_time = time.time() - start_time
     
     # Print overall summary
@@ -212,8 +262,56 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run a single exploration agent")
-    parser.add_argument("--perception", default=os.getenv("PERCEPTION", "unity"), choices=["mock", "unity", "unity-camera", "unity3d"], help="Perception type")
-    parser.add_argument("--agent-id", default=os.getenv("AGENT_ID", "Agent"), help="Unique agent id")
+    parser = argparse.ArgumentParser(
+        description="Run a single exploration agent",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Without sync (original behavior)
+  python main.py --perception unity3d --agent-id Agent1
+  
+  # With sync (uses env_server_url from config.json)
+  python main.py --perception unity3d --agent-id Agent1 --sync
+  
+  # With custom sync server (override config)
+  python main.py --perception unity3d --agent-id Agent1 --sync --sync-server http://192.168.1.100:8000
+        """
+    )
+    parser.add_argument(
+        "--perception",
+        default=os.getenv("PERCEPTION", "unity"),
+        choices=["mock", "unity", "unity-camera", "unity3d"],
+        help="Perception type (default: unity)"
+    )
+    parser.add_argument(
+        "--agent-id",
+        default=os.getenv("AGENT_ID", "Agent"),
+        help="Unique agent id (default: Agent)"
+    )
+    parser.add_argument(
+        "--sync",
+        action="store_true",
+        default=os.getenv("SYNC_ENABLED", "false").lower() in ("true", "1", "yes"),
+        help="Enable synchronized screenshot mode (requires Coordinator)"
+    )
+    parser.add_argument(
+        "--sync-server",
+        default=os.getenv("SYNC_SERVER_URL") or get_config_value("env_server_url") or "http://localhost:8000",
+        help="Sync server URL (default: from config.json env_server_url)"
+    )
+    parser.add_argument(
+        "--sync-timeout",
+        type=float,
+        default=float(os.getenv("SYNC_WAIT_TIMEOUT", "60")),
+        help="Timeout for waiting capture signal in seconds (default: 60)"
+    )
+    
     args = parser.parse_args()
+    
+    # Set environment variables from command line args (for main() to read)
+    if args.sync:
+        os.environ["SYNC_ENABLED"] = "true"
+    os.environ["SYNC_SERVER_URL"] = args.sync_server
+    os.environ["SYNC_WAIT_TIMEOUT"] = str(args.sync_timeout)
+    
     main(args.perception, args.agent_id)
