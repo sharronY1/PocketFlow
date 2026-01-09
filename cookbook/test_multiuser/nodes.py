@@ -432,8 +432,7 @@ class SharedMemoryRetrieveNode(Node):
         description_embedding = None
         if visible_caption:
             description_embedding = get_embedding(visible_caption)
-            if description_embedding is not None:
-                print(f"[{agent_id}] Description embedding: shape={description_embedding.shape}")
+            # description_embedding extracted from visible_caption
         
         # Search shared memory
         search_result = None

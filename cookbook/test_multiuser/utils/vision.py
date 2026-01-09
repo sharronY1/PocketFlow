@@ -107,7 +107,6 @@ Return ONLY the JSON object, no additional text or markdown."""
         )
         
         text = resp.choices[0].message.content or ""
-        print(f"[DEBUG]summarize_img raw response: {text}")
         
         # Parse JSON from response
         text = text.strip()
@@ -142,7 +141,6 @@ Return ONLY the JSON object, no additional text or markdown."""
                     "description": description or f"photo({Path(image_path).name})",
                     "objects": objects
                 }
-                print(f"[DEBUG]summarize_img parsed: {final_result}")
                 return final_result
         except json.JSONDecodeError as e:
             print(f"[WARNING] JSON parsing failed in summarize_img: {e}")
@@ -225,7 +223,6 @@ Return ONLY a brief text description of the changes (1-3 sentences), no JSON or 
         
         text = resp.choices[0].message.content or ""
         text = text.strip()
-        print(f"[DEBUG] compare_img result: {text}")
         
         return text if text else fallback_result
         
