@@ -789,7 +789,7 @@ class DecisionNode(Node):
         actions_text = "\n".join(available_actions)
         
         prompt = f"""You are {context['agent_id']}, an autonomous exploration agent exploring within a 3D environment as part of a multi-agent team.
-                    Your mission is to maximize the discovery of new objects and unexplored areas while cooperating efficiently with other agents. Avoid redundant exploration, communicate findings clearly, and make strategic movement decisions.
+                    Your mission is to maximize the discovery of new objects and unexplored areas through looking around and moving while cooperating efficiently with other agents. Avoid redundant exploration, communicate findings clearly, and make strategic movement decisions.
 Current state:
 - Position: {context['position']}
 - Visible objects: {context['visible_objects']}
@@ -812,9 +812,9 @@ Task goal: Explore as many new objects as possible, avoid revisiting already exp
 Decision strategy:
 - Cross-reference other agents' messages with your local observation.
 - If another agent found new objects nearby, consider moving closer to assist or expand coverage.
-- Important: If you enter an area that is not meant to be explored or meaningless(for example, the sky or any place outside the interactive scene),  please find a way to leave that area.
-- Important: Based on the environment change and action history, analyze if you get stuck somewhere. If so, please find a way to leave that area.
-- If an area is already reported explored or low in novelty, avoid it. Maintain spatial diversity to maximize total system exploration.
+- If you enter an area that is not meant to be explored or meaningless(for example, the sky or any place outside the interactive scene),  please find a way to leave that area.
+- Based on the environment change and action history, analyze if you get stuck somewhere. If so, please find a way to leave that area.
+- If an area is already reported explored or low in novelty, avoid it and try to look at other areas. Maintain spatial diversity to maximize total system exploration.
 - Communicate back only useful information. 
 
 Available actions:
