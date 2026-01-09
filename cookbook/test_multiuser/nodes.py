@@ -26,7 +26,7 @@ from utils.shared_memory_client import (
     search_and_update_or_add
 )
 import time
-from utils.perception_interface import PerceptionInterface
+from utils.perception_interface import PerceptionInterface, read_camera_position_from_poses
 import yaml
 import threading
 import os
@@ -115,26 +115,29 @@ class PerceptionNode(Node):
     """
     
     def prep(self, private_property):
-        # Update position counter at the start of iteration (before perception)
-        private_property["position"] += 1
-        
         # Get perception interface from private_property store
         perception = private_property["perception"]
         agent_id = private_property["agent_id"]
-        position = private_property["position"]
+        step_count = private_property["step_count"]
         
         # Get sync configuration
         sync_enabled = private_property.get("sync_enabled", False)
         sync_server_url = private_property.get("sync_server_url", "http://localhost:8000")
         sync_wait_timeout = private_property.get("sync_wait_timeout", 60.0)
         
+        # Get unity_output_base_path for reading camera position
+        unity_output_base_path = None
+        if hasattr(perception, 'unity_output_base_path'):
+            unity_output_base_path = str(perception.unity_output_base_path)
+        
         return {
             "perception": perception,
             "agent_id": agent_id,
-            "position": position,
+            "step_count": step_count,
             "sync_enabled": sync_enabled,
             "sync_server_url": sync_server_url,
-            "sync_wait_timeout": sync_wait_timeout
+            "sync_wait_timeout": sync_wait_timeout,
+            "unity_output_base_path": unity_output_base_path
         }
     
     def exec(self, prep_res):
@@ -148,10 +151,11 @@ class PerceptionNode(Node):
         """
         perception = prep_res["perception"]
         agent_id = prep_res["agent_id"]
-        position = prep_res["position"]
+        step_count = prep_res["step_count"]
         sync_enabled = prep_res["sync_enabled"]
         sync_server_url = prep_res["sync_server_url"]
         sync_wait_timeout = prep_res["sync_wait_timeout"]
+        unity_output_base_path = prep_res["unity_output_base_path"]
         
         # === 同步模式：等待 Coordinator 的截屏信号 ===
         if sync_enabled:
@@ -171,9 +175,9 @@ class PerceptionNode(Node):
         # Step 3: 执行截屏
         # Use perception interface to get visible objects
         # Note: Thread safety is handled by the perception implementation itself
-        visible = perception.get_visible_objects(agent_id, position)
+        visible = perception.get_visible_objects(agent_id, step_count)
         
-        return visible
+        return {"visible": visible, "unity_output_base_path": unity_output_base_path}
     
     def _report_ready(self, server_url: str, agent_id: str) -> bool:
         """
@@ -255,14 +259,18 @@ class PerceptionNode(Node):
             return False
     
     def post(self, private_property, prep_res, exec_res):
-        private_property["visible_objects"] = exec_res
+        # Extract visible objects and unity_output_base_path from exec_res
+        visible = exec_res.get("visible", []) if isinstance(exec_res, dict) else exec_res
+        unity_output_base_path = exec_res.get("unity_output_base_path") if isinstance(exec_res, dict) else None
+        
+        private_property["visible_objects"] = visible
         # If unity screenshot path is present, use summarize_img to get description and objects with positions
-        # Example of exec_res: ["screenshot:E:/.../img.png"]
+        # Example of visible: ["screenshot:E:/.../img.png"]
         description = None
         current_image_path = None
         
-        if exec_res and isinstance(exec_res[0], str) and exec_res[0].startswith("screenshot:"):
-            current_image_path = exec_res[0].split("screenshot:", 1)[1]
+        if visible and isinstance(visible[0], str) and visible[0].startswith("screenshot:"):
+            current_image_path = visible[0].split("screenshot:", 1)[1]
             # summarize_img returns {"description": "...", "objects": {"chair": "front-near", ...}}
             summary = summarize_img(current_image_path)
             description = summary.get("description")
@@ -270,6 +278,17 @@ class PerceptionNode(Node):
             # Update visible_objects with object-position dict
             if objects_with_positions:
                 private_property["visible_objects"] = objects_with_positions
+            
+            # Read actual camera position from poses CSV
+            camera_position = read_camera_position_from_poses(current_image_path, unity_output_base_path)
+            if camera_position:
+                private_property["position"] = camera_position
+                print(f"[{private_property['agent_id']}] Camera position: ({camera_position[0]:.2f}, {camera_position[1]:.2f}, {camera_position[2]:.2f})")
+            else:
+                # Fallback: keep existing position or use None
+                if private_property.get("position") is None or private_property.get("position") == 0:
+                    private_property["position"] = None
+                print(f"[{private_property['agent_id']}] Warning: Could not read camera position from poses CSV")
         
         # Set visible_caption: use description if available, otherwise format visible_objects
         if description:
@@ -282,7 +301,12 @@ class PerceptionNode(Node):
         else:
             private_property["visible_caption"] = ", ".join(map(str, private_property["visible_objects"]))
         
-        print(f"[{private_property['agent_id']}] Position {private_property['position']}: sees {private_property['visible_objects']}")
+        # Format position for display
+        pos_display = private_property['position']
+        if isinstance(pos_display, tuple) and len(pos_display) == 3:
+            pos_display = f"({pos_display[0]:.2f}, {pos_display[1]:.2f}, {pos_display[2]:.2f})"
+        
+        print(f"[{private_property['agent_id']}] Position {pos_display}: sees {private_property['visible_objects']}")
         if description:
             print(f"[{private_property['agent_id']}] Description: {description}")
         
@@ -299,7 +323,7 @@ class PerceptionNode(Node):
                 if "env_change" not in private_property:
                     private_property["env_change"] = []
                 private_property["env_change"].append({
-                    "step": private_property["position"],
+                    "step": private_property["step_count"],
                     "change": env_change_text,
                     "prev_image": prev_image_path,
                     "curr_image": current_image_path
@@ -644,10 +668,21 @@ class DecisionNode(Node):
     """Decision node: Decide next action based on context"""
     
     def prep(self, private_property):
+        # Format position for LLM display
+        raw_position = private_property["position"]
+        if isinstance(raw_position, tuple) and len(raw_position) == 3:
+            # Format as readable 3D coordinates
+            position_str = f"({raw_position[0]:.2f}, {raw_position[1]:.2f}, {raw_position[2]:.2f})"
+        elif raw_position is None:
+            position_str = "Unknown (not yet captured)"
+        else:
+            position_str = str(raw_position)
+        
         # Collect all context needed for decision making
         context = {
             "agent_id": private_property["agent_id"],
-            "position": private_property["position"],
+            "position": position_str,  # Now formatted as string for LLM
+            "position_raw": raw_position,  # Keep raw tuple for any calculations
             "visible_objects": private_property["visible_objects"],
             "retrieved_memories": private_property["retrieved_memories"],
             "other_agent_messages": private_property["other_agent_messages"],
@@ -687,12 +722,21 @@ class DecisionNode(Node):
         
         # Format action history for prompt
         if latest_history:
-            history_text = "\n".join([
-                f"  Step {record['step']}: At position {record['position']}, action '{record['action']}', "
-                f"visible: {record.get('visible', [])}, "
-                f"new objects: {record.get('new_objects', [])}"
-                for record in latest_history
-            ])
+            history_lines = []
+            for record in latest_history:
+                # Format position as 3D coordinates if tuple, otherwise use as-is
+                pos = record.get('position')
+                if isinstance(pos, tuple) and len(pos) == 3:
+                    pos_str = f"({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f})"
+                else:
+                    pos_str = str(pos)
+                
+                history_lines.append(
+                    f"  Step {record['step']}: At position {pos_str}, action '{record['action']}', "
+                    f"visible: {record.get('visible', [])}, "
+                    f"new objects: {record.get('new_objects', [])}"
+                )
+            history_text = "\n".join(history_lines)
             history_section = f"Recent action history (last {len(latest_history)} steps):\n{history_text}"
         else:
             history_section = "No previous action history (this is the first step)"

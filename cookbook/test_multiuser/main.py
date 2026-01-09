@@ -57,7 +57,8 @@ def run_agent(
         "perception": perception,
         
         # Position and step tracking
-        "position": 0,
+        # position: (x, y, z) tuple from Unity Main Camera, or None if not yet read
+        "position": None,
         "step_count": 0,
         "max_steps": max_steps,
         
