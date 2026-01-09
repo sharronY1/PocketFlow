@@ -19,6 +19,7 @@ from utils import create_environment
 from utils.perception_interface import create_perception, PerceptionInterface
 from utils.window_manager import find_and_focus_meta_xr_simulator
 from utils.config_loader import get_config_value, sync_unity_config
+from utils.logger import setup_logger, close_logger
 from flow import create_agent_flow
 import time
 import argparse
@@ -118,6 +119,10 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
         perception_type: Perception type ("mock", "unity", "unity-camera", or "unity3d")
         agent_id: Unique agent identifier
     """
+    # Setup logger to write all console output to file
+    log_file = setup_logger(name=agent_id, log_dir="logs")
+    print(f"[System] Log file: {log_file}")
+    
     print("\n" + "="*60)
     print("Multi-Agent XR Environment Exploration System")
     print("="*60)

@@ -1,0 +1,62 @@
+============================================================
+Log started at: 2026-01-09T12:57:06.526769
+Name: Coordinator
+============================================================
+
+[12:57:06] [System] Log file: logs\Coordinator_20260109_125706.txt
+[12:57:06] 
+============================================================
+[12:57:06] Multi-Agent Coordinator
+[12:57:06] ============================================================
+[12:57:06] Sync server: http://10.13.227.235:8000
+[12:57:06] Agents to coordinate: ['Agent3', 'Agent2']
+[12:57:06] Max rounds: 100
+[12:57:06] Poll interval: 0.5s
+[12:57:06] Wait timeout: 120.0s
+[12:57:06] ============================================================
+
+[12:57:07] [Coordinator] Sync server is running at http://10.13.227.235:8000
+[12:57:07] [Coordinator] Registering agents: ['Agent3', 'Agent2']
+[12:57:07] [Coordinator] Registration successful!
+[12:57:07] [Coordinator] Expected agents: ['Agent2', 'Agent3']
+[12:57:07] 
+[Coordinator] Starting coordination loop...
+[12:57:07] [Coordinator] Waiting for agents to connect...
+[12:57:07] [Coordinator] (Start your agents with --sync flag now)
+[12:57:07] 
+[12:57:07] [Coordinator] Round 1: Waiting for all agents to be ready...
+[12:57:07] [Coordinator] Expected agents: ['Agent3', 'Agent2']
+[12:57:07] [Coordinator] Status: 0/2 agents ready
+[12:57:20] [Coordinator] Status: 1/2 agents ready
+[12:57:20] [Coordinator] Ready: ['Agent3']
+[12:59:07] [Coordinator] Timeout waiting for agents after 120.0s
+[12:59:07] [Coordinator] Warning: Timeout occurred, retrying...
+[12:59:07] [Coordinator] Round 1: Waiting for all agents to be ready...
+[12:59:07] [Coordinator] Expected agents: ['Agent3', 'Agent2']
+[12:59:07] [Coordinator] Status: 1/2 agents ready
+[12:59:07] [Coordinator] Ready: ['Agent3']
+[13:00:43] [Coordinator] Error checking status: HTTPConnectionPool(host='10.13.227.235', port=8000): Max retries exceeded with url: /sync/status (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000001984563A980>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+[13:00:44] [Coordinator] Error checking status: 500 Server Error: Internal Server Error for url: http://10.13.227.235:8000/sync/status
+[13:00:44] [Coordinator] Error checking status: 500 Server Error: Internal Server Error for url: http://10.13.227.235:8000/sync/status
+[13:00:45] [Coordinator] Error checking status: 500 Server Error: Internal Server Error for url: http://10.13.227.235:8000/sync/status
+[13:00:46] [Coordinator] Error checking status: 500 Server Error: Internal Server Error for url: http://10.13.227.235:8000/sync/status
+[13:00:46] [Coordinator] Error checking status: 500 Server Error: Internal Server Error for url: http://10.13.227.235:8000/sync/status
+[13:00:49] [Coordinator] Error checking status: HTTPConnectionPool(host='10.13.227.235', port=8000): Max retries exceeded with url: /sync/status (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x0000019845639FF0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+[13:00:51] [Coordinator] Error checking status: HTTPConnectionPool(host='10.13.227.235', port=8000): Max retries exceeded with url: /sync/status (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x0000019845639900>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+[13:00:54] [Coordinator] Error checking status: HTTPConnectionPool(host='10.13.227.235', port=8000): Max retries exceeded with url: /sync/status (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000001984563B2B0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+[13:00:56] [Coordinator] Error checking status: HTTPConnectionPool(host='10.13.227.235', port=8000): Max retries exceeded with url: /sync/status (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000001984563B5E0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+[13:00:59] [Coordinator] Error checking status: HTTPConnectionPool(host='10.13.227.235', port=8000): Max retries exceeded with url: /sync/status (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x0000019845638370>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+[13:01:01] [Coordinator] Error checking status: HTTPConnectionPool(host='10.13.227.235', port=8000): Max retries exceeded with url: /sync/status (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x0000019845638BE0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+[13:01:04] [Coordinator] Error checking status: HTTPConnectionPool(host='10.13.227.235', port=8000): Max retries exceeded with url: /sync/status (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x0000019845607AF0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+[13:01:06] [Coordinator] Error checking status: HTTPConnectionPool(host='10.13.227.235', port=8000): Max retries exceeded with url: /sync/status (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x00000198456388E0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+[13:01:09] [Coordinator] Error checking status: HTTPConnectionPool(host='10.13.227.235', port=8000): Max retries exceeded with url: /sync/status (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x00000198456393C0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+[13:01:09] [Coordinator] Timeout waiting for agents after 120.0s
+[13:01:09] [Coordinator] Warning: Timeout occurred, retrying...
+[13:01:09] [Coordinator] Round 1: Waiting for all agents to be ready...
+[13:01:09] [Coordinator] Expected agents: ['Agent3', 'Agent2']
+[13:01:11] [Coordinator] Error checking status: HTTPConnectionPool(host='10.13.227.235', port=8000): Max retries exceeded with url: /sync/status (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000001984563B340>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+[13:01:14] [Coordinator] Error checking status: HTTPConnectionPool(host='10.13.227.235', port=8000): Max retries exceeded with url: /sync/status (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000001984563A170>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+[13:01:16] [Coordinator] Error checking status: HTTPConnectionPool(host='10.13.227.235', port=8000): Max retries exceeded with url: /sync/status (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x0000019845607130>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+[13:01:19] [Coordinator] Error checking status: HTTPConnectionPool(host='10.13.227.235', port=8000): Max retries exceeded with url: /sync/status (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x0000019845639870>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+[13:01:22] [Coordinator] Error checking status: HTTPConnectionPool(host='10.13.227.235', port=8000): Max retries exceeded with url: /sync/status (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000001984563B370>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))
+[13:01:24] [Coordinator] Error checking status: HTTPConnectionPool(host='10.13.227.235', port=8000): Max retries exceeded with url: /sync/status (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x00000198456390F0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))

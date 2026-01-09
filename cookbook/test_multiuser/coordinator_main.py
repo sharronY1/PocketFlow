@@ -65,6 +65,7 @@ import time
 
 from coordinator_flow import create_coordinator_flow
 from utils.config_loader import get_config_value
+from utils.logger import setup_logger, close_logger
 
 
 def register_agents(server_url: str, agent_ids: List[str]) -> bool:
@@ -144,6 +145,10 @@ def run_coordinator(
         poll_interval: Polling interval (seconds)
         wait_timeout: Wait timeout (seconds)
     """
+    # Setup logger to write all console output to file
+    log_file = setup_logger(name="Coordinator", log_dir="logs")
+    print(f"[System] Log file: {log_file}")
+    
     print("\n" + "=" * 60)
     print("Multi-Agent Coordinator")
     print("=" * 60)
