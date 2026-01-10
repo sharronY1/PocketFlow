@@ -64,10 +64,10 @@ def summarize_img(
         client = OpenAI(api_key=api_key, base_url=base_url)
         data_url = _to_data_url(image_path)
         
-        prompt = """Analyze this image and provide:
+        prompt = """You are a helpful assistant that analyzes images and provides a description of the environment/scene and the objects in the image. Analyze this image and provide:
 1. A brief one-sentence description of the environment/scene.
 2. A JSON object mapping each visible object to its position.
-
+The hands in your view is your a part of your avatar, you should not put your hands into discovered objects.
 Position format: "direction-distance" where:
 - direction: front, back, left, right, up, down, or combinations like front-left, front-right, back-left, back-right, up-left, up-right, down-left, down-right
 - distance: near, mid, far

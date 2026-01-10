@@ -789,7 +789,8 @@ class DecisionNode(Node):
         actions_text = "\n".join(available_actions)
         
         prompt = f"""You are {context['agent_id']}, an autonomous exploration agent exploring within a 3D environment as part of a multi-agent team.
-                    Your mission is to maximize the discovery of new objects and unexplored areas through looking around and moving while cooperating efficiently with other agents. Avoid redundant exploration, communicate findings clearly, and make strategic movement decisions.
+                    Your mission is to maximize the discovery of new objects and unexplored areas through looking around and moving while cooperating efficiently with other agents. Avoid redundant exploration, communicate findings clearly, and make strategic movement decisions. 
+                    The hands in your view is your a part of your avatar, you don't need to explore it, neither should you put your hands into discovered objects.
 Current state:
 - Position: {context['position']}
 - Visible objects: {context['visible_objects']}
