@@ -392,14 +392,14 @@ class UnityPyAutoGUIPerception(PerceptionInterface):
         screenshot_dir: Optional[str] = None,
         capture_region: Optional[tuple] = None,  # (left, top, width, height)
         keymap: Optional[Dict[str, str]] = None,
-        step_sleep_seconds: float = 0.3,
+        press_time: float = 0.3,
         messaging_base_url: Optional[str] = None,
     ):
         if pyautogui is None:
             raise RuntimeError("pyautogui is not installed. Please `pip install pyautogui`.")
 
         self.capture_region = capture_region
-        self.step_sleep_seconds = step_sleep_seconds
+        self.press_time = press_time
         self.agent_steps: Dict[str, int] = {}
 
         base_dir = Path(screenshot_dir) if screenshot_dir else Path.cwd() / "screenshots"
@@ -466,7 +466,7 @@ class UnityPyAutoGUIPerception(PerceptionInterface):
             return
         try:
             pyautogui.keyDown(key)
-            time.sleep(self.step_sleep_seconds)
+            time.sleep(self.press_time)
         finally:
             pyautogui.keyUp(key)
 
@@ -515,7 +515,7 @@ class Unity3DPerception(PerceptionInterface):
         self,
         unity_output_base_path: str,
         agent_request_dir: Optional[str] = None,
-        step_sleep_seconds: float = 0.3,
+        press_time: float = 0.3,
         screenshot_timeout: float = 5.0,
         messaging_base_url: Optional[str] = None,
     ):
@@ -523,7 +523,7 @@ class Unity3DPerception(PerceptionInterface):
         Args:
             unity_output_base_path: Base path where Unity saves screenshots (e.g., "D:/output")
             agent_request_dir: Directory for Agent screenshot requests (defaults to {unity_output_base_path}/agent_requests)
-            step_sleep_seconds: Sleep time after movement actions
+            press_time: Press time for movement actions
             screenshot_timeout: Maximum time to wait for screenshot to appear (seconds)
             messaging_base_url: Optional centralized messaging server URL
         """
@@ -534,7 +534,7 @@ class Unity3DPerception(PerceptionInterface):
             raise RuntimeError("pydirectinput is not installed. Please `pip install pydirectinput` for unity3d mode.")
         
         self.unity_output_base_path = Path(unity_output_base_path)
-        self.step_sleep_seconds = step_sleep_seconds
+        self.press_time = press_time
         self.screenshot_timeout = screenshot_timeout
         self.agent_steps: Dict[str, int] = {}
         
@@ -694,10 +694,10 @@ class Unity3DPerception(PerceptionInterface):
 
         # At this point we already ensured we are on Windows and pydirectinput is available.
         print(f"[Unity3DPerception] (pydirectinput) Pressing key '{key}' for action '{action}' "
-              f"(sleep={self.step_sleep_seconds}s).")
+              f"(press_time={self.press_time}s).")
         try:
             pydirectinput.keyDown(key)
-            time.sleep(self.step_sleep_seconds)
+            time.sleep(self.press_time)
         except Exception as e:
             print(f"[Unity3DPerception] Error while executing action '{action}' with pydirectinput: {e}")
         finally:
@@ -765,7 +765,7 @@ class UnityCameraPerception(PerceptionInterface):
         self,
         unity_output_base_path: str,
         agent_request_dir: Optional[str] = None,
-        step_sleep_seconds: float = 0.3,
+        press_time: float = 0.3,
         screenshot_timeout: float = 5.0,
         messaging_base_url: Optional[str] = None,
     ):
@@ -773,7 +773,7 @@ class UnityCameraPerception(PerceptionInterface):
         Args:
             unity_output_base_path: Base path where Unity saves screenshots (e.g., "D:/output")
             agent_request_dir: Directory for Agent screenshot requests (defaults to {unity_output_base_path}/agent_requests)
-            step_sleep_seconds: Sleep time after movement actions
+            press_time: Press time for movement actions
             screenshot_timeout: Maximum time to wait for screenshot to appear (seconds)
             messaging_base_url: Optional centralized messaging server URL
         """
@@ -781,7 +781,7 @@ class UnityCameraPerception(PerceptionInterface):
             raise RuntimeError("pyautogui is not installed. Please `pip install pyautogui`.")
         
         self.unity_output_base_path = Path(unity_output_base_path)
-        self.step_sleep_seconds = step_sleep_seconds
+        self.press_time = press_time
         self.screenshot_timeout = screenshot_timeout
         self.agent_steps: Dict[str, int] = {}
         
@@ -924,7 +924,7 @@ class UnityCameraPerception(PerceptionInterface):
             return
         try:
             pyautogui.keyDown(key)
-            time.sleep(self.step_sleep_seconds)
+            time.sleep(self.press_time)
         finally:
             pyautogui.keyUp(key)
 
@@ -993,7 +993,7 @@ def create_perception(perception_type: str = "mock", **kwargs) -> PerceptionInte
             screenshot_dir=kwargs.get("screenshot_dir"),
             capture_region=kwargs.get("capture_region"),
             keymap=kwargs.get("keymap"),
-            step_sleep_seconds=kwargs.get("step_sleep_seconds", 0.3),
+            press_time=kwargs.get("press_time", 0.3),
             messaging_base_url=kwargs.get("messaging_base_url") or os.getenv("ENV_SERVER_URL"),
         )
     elif perception_type == "unity3d":
@@ -1004,7 +1004,7 @@ def create_perception(perception_type: str = "mock", **kwargs) -> PerceptionInte
         return Unity3DPerception(
             unity_output_base_path=unity_output_base_path,
             agent_request_dir=kwargs.get("agent_request_dir") or os.getenv("AGENT_REQUEST_DIR"),
-            step_sleep_seconds=float(kwargs.get("step_sleep_seconds", os.getenv("STEP_SLEEP", "0.3"))),
+            press_time=float(kwargs.get("press_time", os.getenv("STEP_SLEEP", "0.3"))),
             screenshot_timeout=float(kwargs.get("screenshot_timeout", os.getenv("SCREENSHOT_TIMEOUT", "5.0"))),
             messaging_base_url=kwargs.get("messaging_base_url") or os.getenv("ENV_SERVER_URL"),
         )
@@ -1015,7 +1015,7 @@ def create_perception(perception_type: str = "mock", **kwargs) -> PerceptionInte
         return UnityCameraPerception(
             unity_output_base_path=unity_output_base_path,
             agent_request_dir=kwargs.get("agent_request_dir") or os.getenv("AGENT_REQUEST_DIR"),
-            step_sleep_seconds=float(kwargs.get("step_sleep_seconds", os.getenv("STEP_SLEEP", "0.3"))),
+            press_time=float(kwargs.get("press_time", os.getenv("STEP_SLEEP", "0.3"))),
             screenshot_timeout=float(kwargs.get("screenshot_timeout", os.getenv("SCREENSHOT_TIMEOUT", "5.0"))),
             messaging_base_url=kwargs.get("messaging_base_url") or os.getenv("ENV_SERVER_URL"),
         )

@@ -177,11 +177,17 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
                     capture_region = tuple(parts)  # type: ignore
             except Exception:
                 pass
+        # Priority: config.json > environment variable > default
+        step_sleep = get_config_value("press_time", None)
+        if step_sleep is None:
+            step_sleep = float(os.getenv("STEP_SLEEP", "0.3"))
+        else:
+            step_sleep = float(step_sleep)
         perception = create_perception(
             "unity",
             screenshot_dir=screenshot_dir,
             capture_region=capture_region,
-            step_sleep_seconds=float(os.getenv("STEP_SLEEP", "0.3")),
+            press_time=step_sleep,
         )
         print("[System] Using UnityPyAutoGUIPerception (pyautogui).")
     elif perception_type == "unity-camera":
@@ -200,11 +206,17 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
         if not unity_output_base_path:
             raise ValueError("UNITY_OUTPUT_BASE_PATH is required (set in config.json or environment variable)")
         agent_request_dir = os.getenv("AGENT_REQUEST_DIR")  # Optional
+        # Priority: config.json > environment variable > default
+        step_sleep = get_config_value("press_time", None)
+        if step_sleep is None:
+            step_sleep = float(os.getenv("STEP_SLEEP", "0.3"))
+        else:
+            step_sleep = float(step_sleep)
         perception = create_perception(
             "unity-camera",
             unity_output_base_path=unity_output_base_path,
             agent_request_dir=agent_request_dir,
-            step_sleep_seconds=float(os.getenv("STEP_SLEEP", "0.3")),
+            press_time=step_sleep,
             screenshot_timeout=float(os.getenv("SCREENSHOT_TIMEOUT", "5.0")),
         )
         print("[System] Using UnityCameraPerception (camera extraction package). Make sure Unity is running with autoScreenshotEnabled=false.")
@@ -217,12 +229,17 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
         if not unity_output_base_path:
             raise ValueError("UNITY_OUTPUT_BASE_PATH is required (set in config.json or environment variable)")
         agent_request_dir = os.getenv("AGENT_REQUEST_DIR")  # Optional
+        # Priority: config.json > environment variable > default (1.0s for unity3d mode)
+        step_sleep = get_config_value("press_time", None)
+        if step_sleep is None:
+            step_sleep = float(os.getenv("STEP_SLEEP", "1"))
+        else:
+            step_sleep = float(step_sleep)
         perception = create_perception(
             "unity3d",
             unity_output_base_path=unity_output_base_path,
             agent_request_dir=agent_request_dir,
-            # Default press duration 1.0s for clearer movement in unity3d mode
-            step_sleep_seconds=float(os.getenv("STEP_SLEEP", "1")),
+            press_time=step_sleep,
             screenshot_timeout=float(os.getenv("SCREENSHOT_TIMEOUT", "5.0")),
         )
         print("[System] Using Unity3DPerception (simplified action space: WSAD + Space). Make sure Unity is running.")

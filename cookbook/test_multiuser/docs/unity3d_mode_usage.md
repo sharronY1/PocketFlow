@@ -56,7 +56,7 @@ perception = create_perception(
     "unity3d",
     unity_output_base_path="/path/to/unity/output",
     agent_request_dir="/path/to/request/dir",  # Optional
-    step_sleep_seconds=0.3,
+    press_time=0.3,
     screenshot_timeout=5.0,
 )
 
