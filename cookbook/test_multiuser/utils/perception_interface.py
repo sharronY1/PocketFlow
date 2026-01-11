@@ -83,7 +83,6 @@ def read_camera_position_from_poses(
     poses_dir = Path(unity_output_base_path) / "poses"
     
     if not poses_dir.exists():
-        print(f"[read_camera_position] Poses directory not found: {poses_dir}")
         return None
     
     # Find all CSV files and search for the screenshot name
@@ -765,7 +764,7 @@ class UnityCameraPerception(PerceptionInterface):
         self,
         unity_output_base_path: str,
         agent_request_dir: Optional[str] = None,
-        press_time: float = 0.3,
+        press_time: float = 1.0,
         screenshot_timeout: float = 5.0,
         messaging_base_url: Optional[str] = None,
     ):
@@ -818,7 +817,6 @@ class UnityCameraPerception(PerceptionInterface):
             with open(request_path, 'w') as f:
                 json.dump(request_data, f)
             self._last_request_time[agent_id] = time.time()
-            print(f"[UnityCameraPerception] Screenshot request sent: {request_path}")
         except Exception as e:
             raise RuntimeError(f"Failed to write screenshot request: {e}")
         
@@ -875,7 +873,6 @@ class UnityCameraPerception(PerceptionInterface):
         screenshot_path = self._find_latest_screenshot(agent_id, timestamp, self.screenshot_timeout)
         
         if screenshot_path:
-            print(f"[UnityCameraPerception] Screenshot received: {screenshot_path}")
             return [f"screenshot:{screenshot_path}"]
         else:
             print(f"[UnityCameraPerception] Warning: Screenshot not found for agent {agent_id}, timestamp {timestamp}")
@@ -1015,7 +1012,7 @@ def create_perception(perception_type: str = "mock", **kwargs) -> PerceptionInte
         return UnityCameraPerception(
             unity_output_base_path=unity_output_base_path,
             agent_request_dir=kwargs.get("agent_request_dir") or os.getenv("AGENT_REQUEST_DIR"),
-            press_time=float(kwargs.get("press_time", os.getenv("STEP_SLEEP", "0.3"))),
+            press_time=float(kwargs.get("press_time", os.getenv("STEP_SLEEP", "1.0"))),
             screenshot_timeout=float(kwargs.get("screenshot_timeout", os.getenv("SCREENSHOT_TIMEOUT", "5.0"))),
             messaging_base_url=kwargs.get("messaging_base_url") or os.getenv("ENV_SERVER_URL"),
         )

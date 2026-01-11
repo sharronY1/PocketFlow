@@ -206,10 +206,10 @@ def main(perception_type: str = "mock", agent_id: str = "Agent"):
         if not unity_output_base_path:
             raise ValueError("UNITY_OUTPUT_BASE_PATH is required (set in config.json or environment variable)")
         agent_request_dir = os.getenv("AGENT_REQUEST_DIR")  # Optional
-        # Priority: config.json > environment variable > default
+        # Priority: config.json > environment variable > default (1.0s for unity-camera mode)
         step_sleep = get_config_value("press_time", None)
         if step_sleep is None:
-            step_sleep = float(os.getenv("STEP_SLEEP", "0.3"))
+            step_sleep = float(os.getenv("STEP_SLEEP", "1.0"))
         else:
             step_sleep = float(step_sleep)
         perception = create_perception(

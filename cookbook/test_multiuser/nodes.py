@@ -288,7 +288,6 @@ class PerceptionNode(Node):
                 # Fallback: keep existing position or use None
                 if private_property.get("position") is None or private_property.get("position") == 0:
                     private_property["position"] = None
-                print(f"[{private_property['agent_id']}] Warning: Could not read camera position from poses CSV")
         
         # Set visible_caption: use description if available, otherwise format visible_objects
         if description:
