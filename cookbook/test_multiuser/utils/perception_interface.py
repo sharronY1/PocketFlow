@@ -48,8 +48,8 @@ def _normalize_vector(vec: Tuple[float, float, float]) -> Tuple[float, float, fl
 
 def quaternion_to_directions(qx: float, qy: float, qz: float, qw: float) -> Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]]:
     """
-    Convert quaternion (Unity 左手系: x→右, y→上, z→前) to forward/right/up unit vectors.
-    公式基于 Unity 约定：
+    Convert quaternion (Unity left-handed: x→right, y→up, z→forward) to forward/right/up unit vectors.
+    Formulas based on Unity convention:
         forward = (2(xz + wy), 2(yz - wx), 1 - 2(xx + yy))
         right   = (1 - 2(yy + zz), 2(xy + wz), 2(xz - wy))
         up      = (2(xy - wz), 1 - 2(xx + zz), 2(yz + wx))
@@ -77,15 +77,15 @@ def read_camera_position_from_poses(
     unity_output_base_path: Optional[str] = None
 ) -> Optional[Dict[str, Tuple[float, ...]]]:
     """
-    读取姿态文件，返回当前位置/朝向及初始位置/朝向。
+    Read pose file and return current position/rotation and initial position/rotation.
 
-    CSV: frameCount,timeUtc,x,y,z,qx,qy,qz,qw,screenshotName
+    CSV format: frameCount,timeUtc,x,y,z,qx,qy,qz,qw,screenshotName
 
-    返回:
+    Returns:
         {
-            "position": (x, y, z),             # 匹配 screenshotName 的行，若无则最后一行
+            "position": (x, y, z),             # Row matching screenshotName, or last row if not found
             "rotation": (qx, qy, qz, qw),
-            "initial_position": (ix, iy, iz),  # 第一条数据行
+            "initial_position": (ix, iy, iz),  # First data row
             "initial_rotation": (iqx, iqy, iqz, iqw)
         }
     """

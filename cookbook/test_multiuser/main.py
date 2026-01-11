@@ -94,7 +94,7 @@ def run_agent(
         "action_history": [],  # list of {step, position, action, visible, new_objects}
         "env_change": []  # list of {step, change, prev_image, curr_image} for environment changes
     }
-    # 如果感知实现包含 press_time 属性，则覆盖配置中的 press_time
+    # If perception implementation has press_time attribute, override config press_time
     if hasattr(perception, "press_time"):
         try:
             private_property["press_time"] = float(getattr(perception, "press_time"))

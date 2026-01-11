@@ -147,7 +147,7 @@ class PerceptionNode(Node):
     
     def exec(self, prep_res):
         """
-        执行阶段：获取环境感知（可能需要同步等待）
+        Execution phase: Get environment perception (may need to wait for synchronization)
         
         Synchronization Flow:
         1. If sync_enabled, report ready to Coordinator
@@ -162,12 +162,12 @@ class PerceptionNode(Node):
         sync_wait_timeout = prep_res["sync_wait_timeout"]
         unity_output_base_path = prep_res["unity_output_base_path"]
         
-        # === 同步模式：等待 Coordinator 的截屏信号 ===
+        # === Synchronization mode: Wait for Coordinator's capture signal ===
         if sync_enabled:
-            # Step 1: 向 Coordinator 报告已到达 PerceptionNode
+            # Step 1: Report to Coordinator that we've reached PerceptionNode
             self._report_ready(sync_server_url, agent_id)
             
-            # Step 2: 阻塞等待 Coordinator 的截屏信号
+            # Step 2: Block and wait for Coordinator's capture signal
             capture_ok = self._wait_for_capture_signal(
                 sync_server_url, 
                 agent_id, 
@@ -177,7 +177,7 @@ class PerceptionNode(Node):
             if not capture_ok:
                 print(f"[{agent_id}] Warning: Timeout waiting for capture signal, proceeding anyway")
         
-        # Step 3: 执行截屏
+        # Step 3: Execute screenshot
         # Use perception interface to get visible objects
         # Note: Thread safety is handled by the perception implementation itself
         visible = perception.get_visible_objects(agent_id, step_count)
@@ -186,13 +186,13 @@ class PerceptionNode(Node):
     
     def _report_ready(self, server_url: str, agent_id: str) -> bool:
         """
-        向 Coordinator 报告已准备好截屏
+        Report to Coordinator that we're ready for screenshot
         
-        调用 POST /sync/ready 告知 Coordinator 本 Agent 已到达 PerceptionNode
+        Calls POST /sync/ready to notify Coordinator that this Agent has reached PerceptionNode
         
         Args:
-            server_url: 同步服务器地址
-            agent_id: Agent 标识符
+            server_url: Synchronization server URL
+            agent_id: Agent identifier
             
         Returns:
             True if successfully reported, False otherwise
@@ -223,14 +223,14 @@ class PerceptionNode(Node):
         timeout: float
     ) -> bool:
         """
-        阻塞等待 Coordinator 的截屏信号
+        Block and wait for Coordinator's capture signal
         
-        调用 POST /sync/wait_capture 阻塞等待，直到 Coordinator 调用 trigger_capture
+        Calls POST /sync/wait_capture to block and wait until Coordinator calls trigger_capture
         
         Args:
-            server_url: 同步服务器地址
-            agent_id: Agent 标识符
-            timeout: 最大等待时间（秒）
+            server_url: Synchronization server URL
+            agent_id: Agent identifier
+            timeout: Maximum wait time (seconds)
             
         Returns:
             True if capture signal received, False if timeout
@@ -289,7 +289,7 @@ class PerceptionNode(Node):
             if pose_info:
                 private_property["position"] = pose_info["position"]
                 private_property["rotation"] = pose_info["rotation"]
-                # 缓存初始位姿（只写一次）
+                # Cache initial pose (write only once)
                 if private_property.get("initial_position") is None:
                     private_property["initial_position"] = pose_info["initial_position"]
                 if private_property.get("initial_rotation") is None:
@@ -832,8 +832,7 @@ When other agents have reported discoveries or explored certain regions, use thi
 Task goal: Explore as many new objects as possible, avoid revisiting already explored areas. Analize the screen shot and decide the next action.
 
 Decision strategy:
-- Cross-reference other agents' messages with your local observation.
-- If another agent found new objects nearby, consider moving closer to assist or expand coverage.
+- Cross-reference other agents' messages with your local observation. If another agent found lots of new objects nearby, consider moving closer to assist or expand coverage.
 - If you enter an area that is not meant to be explored or meaningless(for example, the sky or any place outside the interactive scene),  please find a way to leave that area.
 - Based on the environment change and action history, analyze if you get stuck somewhere. If so, please find a way to leave that area.
 - If an area is already reported explored or low in novelty, avoid it and try to look at other areas. Maintain spatial diversity to maximize total system exploration.
@@ -847,8 +846,9 @@ Please decide the next action based on the above information, output in YAML for
 
 ```yaml
 thinking: Your thought process (MUST consider messages from other agents if any, and whether to explore new areas)
+
+reason: Detailed reason for choosing this action. Take all of the above information and decision strategy into account.
 action: one of [{action_list}]
-reason: Reason for choosing this action (mention other agents' messages if they influenced your decision)
 message_to_others: Information to share with other agents (optional)
 ```
 """
@@ -964,13 +964,13 @@ message_to_others: Information to share with other agents (optional)
             _, is_valid = predict_position(action)
             if is_valid:
                 break
-            # 记录禁用动作并重试
+            # Record forbidden action and retry
             if action not in forbidden_actions:
                 forbidden_actions.append(action)
             result = None
 
         if result is None:
-            # 极端情况下回退为不移动的观测动作
+            # Fallback to non-movement observation action in extreme cases
             result = {
                 "thinking": "All attempts exceeded limits, fallback to look_left",
                 "action": "look_left",
@@ -978,7 +978,7 @@ message_to_others: Information to share with other agents (optional)
                 "message_to_others": ""
             }
 
-        # 清空/更新禁用列表（post 中会写回）
+        # Clear/update forbidden list (will be written back in post)
         result["_forbidden_actions_used"] = forbidden_actions
         return result
     
@@ -986,7 +986,7 @@ message_to_others: Information to share with other agents (optional)
         private_property["action"] = exec_res["action"]
         private_property["action_reason"] = exec_res.get("reason", "")
         private_property["message_to_others"] = exec_res.get("message_to_others", "")
-        # 清空禁用列表
+        # Clear forbidden list
         private_property["forbidden_action"] = []
         if "_forbidden_actions_used" in exec_res:
             private_property["_forbidden_actions_used"] = exec_res["_forbidden_actions_used"]
