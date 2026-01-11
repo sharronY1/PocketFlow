@@ -59,8 +59,15 @@ def run_agent(
         # Position and step tracking
         # position: (x, y, z) tuple from Unity Main Camera, or None if not yet read
         "position": None,
+        "rotation": None,
+        "initial_position": None,
+        "initial_rotation": None,
         "step_count": 0,
         "max_steps": max_steps,
+        "movement_limits": get_config_value("movement_limits", {}),
+        "move_speed": float(get_config_value("move_speed", 1.0)),
+        "press_time": float(get_config_value("press_time", 1.0)),
+        "forbidden_action": [],
         
         # === Synchronization configuration ===
         # When sync_enabled=True, PerceptionNode will:
@@ -87,6 +94,12 @@ def run_agent(
         "action_history": [],  # list of {step, position, action, visible, new_objects}
         "env_change": []  # list of {step, change, prev_image, curr_image} for environment changes
     }
+    # 如果感知实现包含 press_time 属性，则覆盖配置中的 press_time
+    if hasattr(perception, "press_time"):
+        try:
+            private_property["press_time"] = float(getattr(perception, "press_time"))
+        except Exception:
+            pass
     
     # Create and run flow
     flow = create_agent_flow()

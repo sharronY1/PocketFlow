@@ -14,6 +14,7 @@ To enable sync mode, set in private_property:
     private_property["sync_server_url"] = "http://localhost:8000"
 """
 from pocketflow import Node
+from typing import List, Tuple, Optional
 from utils import (
     call_llm,
     get_embedding,
@@ -26,7 +27,11 @@ from utils.shared_memory_client import (
     search_and_update_or_add
 )
 import time
-from utils.perception_interface import PerceptionInterface, read_camera_position_from_poses
+from utils.perception_interface import (
+    PerceptionInterface,
+    read_camera_position_from_poses,
+    quaternion_to_directions,
+)
 import yaml
 import threading
 import os
@@ -280,12 +285,17 @@ class PerceptionNode(Node):
                 private_property["visible_objects"] = objects_with_positions
             
             # Read actual camera position from poses CSV
-            camera_position = read_camera_position_from_poses(current_image_path, unity_output_base_path)
-            if camera_position:
-                private_property["position"] = camera_position
-                print(f"[{private_property['agent_id']}] Camera position: ({camera_position[0]:.2f}, {camera_position[1]:.2f}, {camera_position[2]:.2f})")
+            pose_info = read_camera_position_from_poses(current_image_path, unity_output_base_path)
+            if pose_info:
+                private_property["position"] = pose_info["position"]
+                private_property["rotation"] = pose_info["rotation"]
+                # 缓存初始位姿（只写一次）
+                if private_property.get("initial_position") is None:
+                    private_property["initial_position"] = pose_info["initial_position"]
+                if private_property.get("initial_rotation") is None:
+                    private_property["initial_rotation"] = pose_info["initial_rotation"]
+                print(f"[{private_property['agent_id']}] Camera position: ({pose_info['position'][0]:.2f}, {pose_info['position'][1]:.2f}, {pose_info['position'][2]:.2f})")
             else:
-                # Fallback: keep existing position or use None
                 if private_property.get("position") is None or private_property.get("position") == 0:
                     private_property["position"] = None
         
@@ -682,6 +692,9 @@ class DecisionNode(Node):
             "agent_id": private_property["agent_id"],
             "position": position_str,  # Now formatted as string for LLM
             "position_raw": raw_position,  # Keep raw tuple for any calculations
+            "initial_position": private_property.get("initial_position"),
+            "rotation": private_property.get("rotation"),
+            "initial_rotation": private_property.get("initial_rotation"),
             "visible_objects": private_property["visible_objects"],
             "retrieved_memories": private_property["retrieved_memories"],
             "other_agent_messages": private_property["other_agent_messages"],
@@ -689,7 +702,11 @@ class DecisionNode(Node):
             "step_count": private_property["step_count"],
             "perception_type": private_property.get("perception", {}).get_environment_info().get("type", "unknown"),
             "action_history": private_property.get("action_history", []),  # Add action history to context
-            "env_change": private_property.get("env_change", [])  # Add environment change history
+            "env_change": private_property.get("env_change", []),  # Add environment change history
+            "movement_limits": private_property.get("movement_limits"),
+            "move_speed": private_property.get("move_speed", 1.0),
+            "press_time": private_property.get("press_time", 1.0),
+            "forbidden_action": private_property.get("forbidden_action", []),
         }
         return context
     
@@ -704,7 +721,7 @@ class DecisionNode(Node):
                 "message_to_others": "Testing without LLM"
             }
 
-        # Construct decision prompt
+        # Construct decision prompt (base parts computed once; forbidden list appended in loop)
         memories_text = "\n".join([
             f"- {text[:100]}" 
             for text, _ in context["retrieved_memories"][:3]
@@ -787,7 +804,12 @@ class DecisionNode(Node):
         
         actions_text = "\n".join(available_actions)
         
-        prompt = f"""You are {context['agent_id']}, an autonomous exploration agent exploring within a 3D environment as part of a multi-agent team.
+        def build_prompt(forbidden_actions: List[str]) -> str:
+            forbidden_clause = ""
+            if forbidden_actions:
+                forbidden_clause = f"\nForbidden actions (do NOT output any of these): {', '.join(forbidden_actions)}"
+
+            return f"""You are {context['agent_id']}, an autonomous exploration agent exploring within a 3D environment as part of a multi-agent team.
                     Your mission is to maximize the discovery of new objects and unexplored areas through looking around and moving while cooperating efficiently with other agents. Avoid redundant exploration, communicate findings clearly, and make strategic movement decisions. 
                     The hands in your view is your a part of your avatar, you don't need to explore it, neither should you put your hands into discovered objects.
 Current state:
@@ -819,6 +841,7 @@ Decision strategy:
 
 Available actions:
 {actions_text}
+{forbidden_clause}
 
 Please decide the next action based on the above information, output in YAML format:
 
@@ -829,62 +852,144 @@ reason: Reason for choosing this action (mention other agents' messages if they 
 message_to_others: Information to share with other agents (optional)
 ```
 """
-        
-        response = call_llm(prompt)
-        
-        # Parse YAML with improved error handling
-        try:
-            result = parse_yaml_from_llm_response(response)
-            
-            # Validate required fields
-            if not isinstance(result, dict):
-                raise ValueError("LLM response is not a dictionary")
-            if "action" not in result:
-                raise ValueError("Missing 'action' field in LLM response")
-            if result["action"] not in valid_actions:
-                raise ValueError(f"Invalid action: {result['action']}")
-            if "reason" not in result:
-                result["reason"] = "No reason provided"
-            
-        except (IndexError, ValueError, yaml.YAMLError) as e:
-            # Fallback: try to extract action from response text
-            print(f"[DecisionNode] YAML parsing failed: {e}")
-            print(f"[DecisionNode] LLM response was: {response[:500]}...")
-            
-            # Try regex extraction as fallback
-            action_match = re.search(r'action:\s*(\w+)', response, re.IGNORECASE)
-            if action_match:
-                action = action_match.group(1).lower()
-                if action in valid_actions:
-                    result = {
-                        "thinking": "YAML parsing failed, extracted action from text",
-                        "action": action,
-                        "reason": "Fallback decision due to YAML parsing error",
-                        "message_to_others": ""
-                    }
+
+        def predict_position(action: str) -> Tuple[Optional[Tuple[float, float, float]], bool]:
+            # axis: 0=forward, 1=right, 2=up; sign: 1 or -1
+            movable_actions = {
+                "forward": (0, 1),
+                "backward": (0, -1),
+                "move_right": (1, 1),
+                "move_left": (1, -1),
+                "move_up": (2, 1),
+                "move_down": (2, -1),
+            }
+            if action not in movable_actions:
+                return None, True
+
+            cur_pos = context.get("position_raw")
+            init_pos = context.get("initial_position")
+            rot = context.get("rotation")
+            limits = context.get("movement_limits") or {}
+            if not cur_pos or not rot or not init_pos:
+                return None, True
+
+            forward, right, up = quaternion_to_directions(*rot)
+            print(f"[MovementCheck] Calculated directions from quaternion {rot}: Forward=({forward[0]:.6f}, {forward[1]:.6f}, {forward[2]:.6f}), Right=({right[0]:.6f}, {right[1]:.6f}, {right[2]:.6f}), Up=({up[0]:.6f}, {up[1]:.6f}, {up[2]:.6f})")
+            axis, sign = movable_actions[action]
+            dir_vec = forward if axis == 0 else right if axis == 1 else up
+            dir_vec = tuple(sign * d for d in dir_vec)
+
+            step_len = float(context.get("press_time", 1.0)) * float(context.get("move_speed", 1.0))
+            pred = (
+                cur_pos[0] + dir_vec[0] * step_len,
+                cur_pos[1] + dir_vec[1] * step_len,
+                cur_pos[2] + dir_vec[2] * step_len,
+            )
+
+            delta = (
+                pred[0] - init_pos[0],
+                pred[1] - init_pos[1],
+                pred[2] - init_pos[2],
+            )
+
+            def within_limits() -> bool:
+                # limits keys: forward/backward/left/right/up/down
+                if "forward" in limits and delta[2] > limits["forward"]:
+                    return False
+                if "backward" in limits and -delta[2] > limits["backward"]:
+                    return False
+                if "right" in limits and delta[0] > limits["right"]:
+                    return False
+                if "left" in limits and -delta[0] > limits["left"]:
+                    return False
+                if "up" in limits and delta[1] > limits["up"]:
+                    return False
+                if "down" in limits and -delta[1] > limits["down"]:
+                    return False
+                return True
+
+            is_valid = within_limits()
+            status = "OK" if is_valid else "OUT_OF_RANGE"
+            print(f"[{context['agent_id']}] Predicted position after '{action}': ({pred[0]:.2f}, {pred[1]:.2f}, {pred[2]:.2f}) [{status}]")
+            return pred, is_valid
+
+        forbidden_actions: List[str] = list(context.get("forbidden_action") or [])
+        max_loop = 10
+        result = None
+
+        for _ in range(max_loop):
+            prompt = build_prompt(forbidden_actions)
+            response = call_llm(prompt)
+
+            try:
+                parsed = parse_yaml_from_llm_response(response)
+                if not isinstance(parsed, dict):
+                    raise ValueError("LLM response is not a dictionary")
+                if "action" not in parsed:
+                    raise ValueError("Missing 'action' field in LLM response")
+                if parsed["action"] not in valid_actions:
+                    raise ValueError(f"Invalid action: {parsed['action']}")
+                if "reason" not in parsed:
+                    parsed["reason"] = "No reason provided"
+                result = parsed
+            except (IndexError, ValueError, yaml.YAMLError) as e:
+                print(f"[DecisionNode] YAML parsing failed: {e}")
+                print(f"[DecisionNode] LLM response was: {response[:500]}...")
+                action_match = re.search(r'action:\s*(\w+)', response, re.IGNORECASE)
+                if action_match:
+                    action = action_match.group(1).lower()
+                    if action in valid_actions:
+                        result = {
+                            "thinking": "YAML parsing failed, extracted action from text",
+                            "action": action,
+                            "reason": "Fallback decision due to YAML parsing error",
+                            "message_to_others": ""
+                        }
+                    else:
+                        result = {
+                            "thinking": "YAML parsing failed and could not extract valid action",
+                            "action": "forward" if context.get("step_count", 0) % 2 == 0 else "backward",
+                            "reason": "Fallback to deterministic action due to parsing error",
+                            "message_to_others": ""
+                        }
                 else:
-                    # Final fallback: use deterministic action
                     result = {
-                        "thinking": "YAML parsing failed and could not extract valid action",
+                        "thinking": "YAML parsing failed and could not extract action from response",
                         "action": "forward" if context.get("step_count", 0) % 2 == 0 else "backward",
                         "reason": "Fallback to deterministic action due to parsing error",
                         "message_to_others": ""
                     }
-            else:
-                # Final fallback: use deterministic action
-                result = {
-                    "thinking": "YAML parsing failed and could not extract action from response",
-                    "action": "forward" if context.get("step_count", 0) % 2 == 0 else "backward",
-                    "reason": "Fallback to deterministic action due to parsing error",
-                    "message_to_others": ""
-                }
-        
+
+            action = result["action"]
+            _, is_valid = predict_position(action)
+            if is_valid:
+                break
+            # 记录禁用动作并重试
+            if action not in forbidden_actions:
+                forbidden_actions.append(action)
+            result = None
+
+        if result is None:
+            # 极端情况下回退为不移动的观测动作
+            result = {
+                "thinking": "All attempts exceeded limits, fallback to look_left",
+                "action": "look_left",
+                "reason": "Safety fallback to avoid boundary overflow",
+                "message_to_others": ""
+            }
+
+        # 清空/更新禁用列表（post 中会写回）
+        result["_forbidden_actions_used"] = forbidden_actions
         return result
     
     def post(self, private_property, prep_res, exec_res):
         private_property["action"] = exec_res["action"]
         private_property["action_reason"] = exec_res.get("reason", "")
         private_property["message_to_others"] = exec_res.get("message_to_others", "")
+        # 清空禁用列表
+        private_property["forbidden_action"] = []
+        if "_forbidden_actions_used" in exec_res:
+            private_property["_forbidden_actions_used"] = exec_res["_forbidden_actions_used"]
         
         print(f"[{private_property['agent_id']}] Decision: {exec_res['action']}")
         print(f"  Reason: {exec_res['reason']}")

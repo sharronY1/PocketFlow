@@ -107,6 +107,13 @@ namespace CameraExtraction
 			// Then log pose data along with screenshot
 			Vector3 p = targetCamera.transform.position; 
 			Quaternion q = targetCamera.transform.rotation;
+			Vector3 forward = targetCamera.transform.forward;
+			Vector3 right = targetCamera.transform.right;
+			Vector3 up = targetCamera.transform.up;
+			string cameraPath = GetGameObjectPath(targetCamera.gameObject);
+			Debug.Log($"[CenterEyePoseLogger] 📍 Camera Path: {cameraPath}");
+			Debug.Log($"[CenterEyePoseLogger] 📍 Position: ({p.x:F6}, {p.y:F6}, {p.z:F6}), Rotation: ({q.x:F6}, {q.y:F6}, {q.z:F6}, {q.w:F6})");
+			Debug.Log($"[CenterEyePoseLogger] 📍 Transform Directions - Forward: ({forward.x:F6}, {forward.y:F6}, {forward.z:F6}), Right: ({right.x:F6}, {right.y:F6}, {right.z:F6}), Up: ({up.x:F6}, {up.y:F6}, {up.z:F6})");
 			string timeUtc = DateTime.UtcNow.ToString("o");
 			
 			File.AppendAllText(logPath, string.Format("{0},{1},{2:F6},{3:F6},{4:F6},{5:F6},{6:F6},{7:F6},{8:F6},{9}\n", 
@@ -155,6 +162,13 @@ namespace CameraExtraction
 			// 2. Log pose data
 			Vector3 p = targetCamera.transform.position; 
 			Quaternion q = targetCamera.transform.rotation;
+			Vector3 forward = targetCamera.transform.forward;
+			Vector3 right = targetCamera.transform.right;
+			Vector3 up = targetCamera.transform.up;
+			string cameraPath = GetGameObjectPath(targetCamera.gameObject);
+			Debug.Log($"[CenterEyePoseLogger] 📍 Camera Path: {cameraPath}");
+			Debug.Log($"[CenterEyePoseLogger] 📍 Position: ({p.x:F6}, {p.y:F6}, {p.z:F6}), Rotation: ({q.x:F6}, {q.y:F6}, {q.z:F6}, {q.w:F6})");
+			Debug.Log($"[CenterEyePoseLogger] 📍 Transform Directions - Forward: ({forward.x:F6}, {forward.y:F6}, {forward.z:F6}), Right: ({right.x:F6}, {right.y:F6}, {right.z:F6}), Up: ({up.x:F6}, {up.y:F6}, {up.z:F6})");
 			string timeUtc = DateTime.UtcNow.ToString("o");
 			File.AppendAllText(logPath, string.Format("{0},{1},{2:F6},{3:F6},{4:F6},{5:F6},{6:F6},{7:F6},{8:F6},{9}\n", 
 				frameCount, timeUtc, p.x, p.y, p.z, q.x, q.y, q.z, q.w, screenshotName));
@@ -340,6 +354,8 @@ namespace CameraExtraction
 			if (targetCamera == null) return;
 			if (initialized && !forceReinit) return;
 			string cameraName = targetCamera.gameObject.name;
+			string cameraPath = GetGameObjectPath(targetCamera.gameObject);
+			Debug.Log($"[CenterEyePoseLogger] 🔧 Initializing camera path: {cameraPath}");
 			string uniqueCameraId = cameraName + "__" + targetCamera.gameObject.GetInstanceID();
 			logDir = string.IsNullOrEmpty(customPosesPath) ? config.GetPosesPathForCamera(uniqueCameraId) : customPosesPath;
 			screenshotDir = string.IsNullOrEmpty(customScreenshotPath) ? config.GetScreenshotsPathForCamera(uniqueCameraId) : customScreenshotPath;
@@ -435,6 +451,11 @@ namespace CameraExtraction
 	public void Configure(Camera cam, string posesDir, string screenshotsDir, int interval, float screenshotInterval, bool capture)
 	{
 		targetCamera = cam;
+		if (targetCamera != null)
+		{
+			string cameraPath = GetGameObjectPath(targetCamera.gameObject);
+			Debug.Log($"[CenterEyePoseLogger] 🔧 Configured camera path: {cameraPath}");
+		}
 		customPosesPath = posesDir;
 		customScreenshotPath = screenshotsDir;
 		frameInterval = Mathf.Max(1, interval);
@@ -448,6 +469,22 @@ namespace CameraExtraction
 			if (string.IsNullOrEmpty(name)) return "Camera";
 			foreach (char c in System.IO.Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
 			return name;
+		}
+
+		/// <summary>
+		/// Get the full hierarchy path of a GameObject (e.g., "Parent/Child/GrandChild")
+		/// </summary>
+		private static string GetGameObjectPath(GameObject obj)
+		{
+			if (obj == null) return "null";
+			string path = obj.name;
+			Transform current = obj.transform.parent;
+			while (current != null)
+			{
+				path = current.name + "/" + path;
+				current = current.parent;
+			}
+			return path;
 		}
 	}
 }

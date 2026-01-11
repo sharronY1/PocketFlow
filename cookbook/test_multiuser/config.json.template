@@ -11,6 +11,15 @@
         "base_url": "https://api.nuwaapi.com/v1",
         "model": "gpt-4o"
     },
+    "movement_limits": {
+        "forward": 5,
+        "backward": 2,
+        "left": 3,
+        "right": 3,
+        "up": 1,
+        "down": 1
+    },
+    "move_speed": 1.0,
     "max_steps": 105,
     "env_server_url": "http://10.13.227.235:8000",
     "shared_memory": {
