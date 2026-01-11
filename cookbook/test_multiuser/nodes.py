@@ -847,7 +847,7 @@ Please decide the next action based on the above information, output in YAML for
 ```yaml
 thinking: Your thought process (MUST consider messages from other agents if any, and whether to explore new areas)
 
-reason: Detailed reason for choosing this action. Take all of the above information and decision strategy into account.
+reason: Detailed reason for choosing this action. Explicitly explain how you consider the above information and decision strategy into account.
 action: one of [{action_list}]
 message_to_others: Information to share with other agents (optional)
 ```
