@@ -347,10 +347,10 @@ class PerceptionNode(Node):
 
 class CommunicationNode(Node):
     """Communication node: Read messages from other agents"""
-    
+
     def prep(self, private_property):
         return private_property["agent_id"], private_property["perception"]
-    
+
     def exec(self, prep_res):
         agent_id, perception = prep_res
         try:
@@ -359,16 +359,145 @@ class CommunicationNode(Node):
             print(f"[CommunicationNode] Error polling messages: {e}")
             messages = []
         return messages
-    
+
     def post(self, private_property, prep_res, exec_res):
         private_property["other_agent_messages"] = exec_res
-        
+
+        # Clear relative positions from previous round
+        private_property["relative_positions"] = {}
+
+        # Parse position information from messages and calculate relative positions
+        current_position = private_property.get("position")
+        current_rotation = private_property.get("rotation")
+        agent_id = private_property["agent_id"]
+
+        relative_positions = {}
+
+        if exec_res and current_position and current_rotation:
+            for msg in exec_res:
+                sender = msg['sender']
+                message = msg['message']
+
+                # Extract position and rotation from message
+                other_pos, other_rot = self._extract_position_from_message(message)
+
+                if other_pos and other_rot:
+                    # Calculate relative position
+                    relative_info = self._calculate_relative_position(
+                        current_position, current_rotation, other_pos, other_rot
+                    )
+                    if relative_info:
+                        relative_positions[sender] = relative_info
+                        print(f"[{agent_id}] Relative position to {sender}: {relative_info}")
+
+        # Store relative positions for DecisionNode
+        private_property["relative_positions"] = relative_positions
+
         if exec_res:
             print(f"[{private_property['agent_id']}] Received {len(exec_res)} messages:")
             for msg in exec_res:
                 print(f"  From {msg['sender']}: {msg['message']}")
-        
+
         return "default"
+
+    def _extract_position_from_message(self, message: str) -> Tuple[Optional[Tuple[float, float, float]], Optional[Tuple[float, float, float, float]]]:
+        """
+        Extract position and rotation from message format: [POS:(x,y,z)][ROT:(w,x,y,z)]message
+
+        Returns:
+            (position_tuple, rotation_tuple) or (None, None) if not found
+        """
+        import re
+
+        # Extract position: [POS:(x,y,z)]
+        pos_match = re.search(r'\[POS:\(([^)]+)\)\]', message)
+        position = None
+        if pos_match:
+            try:
+                pos_str = pos_match.group(1)
+                pos_parts = [float(x.strip()) for x in pos_str.split(',')]
+                if len(pos_parts) == 3:
+                    position = tuple(pos_parts)
+            except (ValueError, IndexError):
+                pass
+
+        # Extract rotation: [ROT:(w,x,y,z)]
+        rot_match = re.search(r'\[ROT:\(([^)]+)\)\]', message)
+        rotation = None
+        if rot_match:
+            try:
+                rot_str = rot_match.group(1)
+                rot_parts = [float(x.strip()) for x in rot_str.split(',')]
+                if len(rot_parts) == 4:
+                    rotation = tuple(rot_parts)
+            except (ValueError, IndexError):
+                pass
+
+        return position, rotation
+
+    def _calculate_relative_position(self, self_pos: Tuple[float, float, float],
+                                   self_rot: Tuple[float, float, float, float],
+                                   other_pos: Tuple[float, float, float, float],
+                                   other_rot: Tuple[float, float, float, float]) -> Optional[str]:
+        """
+        Calculate relative position relationship between two agents.
+
+        Returns:
+            String description of relative position and distance, or None if calculation fails
+        """
+        try:
+            # Calculate vector from self to other agent
+            dx = other_pos[0] - self_pos[0]
+            dy = other_pos[1] - self_pos[1]
+            dz = other_pos[2] - self_pos[2]
+
+            # Get forward, right, up directions from self rotation
+            forward, right, up = quaternion_to_directions(*self_rot)
+
+            # Project the relative vector onto self's local coordinate system
+            forward_dot = dx * forward[0] + dy * forward[1] + dz * forward[2]
+            right_dot = dx * right[0] + dy * right[1] + dz * right[2]
+            up_dot = dx * up[0] + dy * up[1] + dz * up[2]
+
+            # Calculate Euclidean distance
+            distance = (dx**2 + dy**2 + dz**2)**0.5
+
+            # Determine relative position relationships
+            relations = []
+
+            # Forward/Backward (along forward axis)
+            if abs(forward_dot) > 0.1:  # threshold to avoid noise
+                if forward_dot > 0:
+                    relations.append("front")
+                else:
+                    relations.append("back")
+
+            # Left/Right (along right axis)
+            # Only mention left/right if not aligned with forward direction
+            if abs(right_dot) > 0.1 and abs(forward_dot) < abs(right_dot):
+                if right_dot > 0:
+                    relations.append("right")
+                else:
+                    relations.append("left")
+
+            # Up/Down (along up axis)
+            if abs(up_dot) > 0.1:
+                if up_dot > 0:
+                    relations.append("up")
+                else:
+                    relations.append("down")
+
+            # Format the result
+            if relations:
+                position_desc = "/".join(relations)
+            else:
+                position_desc = "aligned"  # directly in front/back with no lateral offset
+
+            return f"{position_desc} at distance {distance:.2f}"
+
+        except Exception as e:
+            print(f"Error calculating relative position: {e}")
+            return None
 
 
 class SharedMemoryRetrieveNode(Node):
@@ -698,6 +827,7 @@ class DecisionNode(Node):
             "visible_objects": private_property["visible_objects"],
             "retrieved_memories": private_property["retrieved_memories"],
             "other_agent_messages": private_property["other_agent_messages"],
+            "relative_positions": private_property.get("relative_positions", {}),  # Add relative positions
             "explored_objects": list(private_property["explored_objects"]),
             "step_count": private_property["step_count"],
             "perception_type": private_property.get("perception", {}).get_environment_info().get("type", "unknown"),
@@ -731,7 +861,18 @@ class DecisionNode(Node):
             f"- {msg['sender']}: {msg['message']}"
             for msg in context["other_agent_messages"]
         ]) if context["other_agent_messages"] else "No messages from other agents"
-        
+
+        # Format relative positions with other agents
+        relative_positions = context.get("relative_positions", {})
+        if relative_positions:
+            relative_positions_text = "\n".join([
+                f"- Agent {agent_id}: {position_info}"
+                for agent_id, position_info in relative_positions.items()
+            ])
+            relative_positions_section = f"Relative position with other agents:\n{relative_positions_text}"
+        else:
+            relative_positions_section = "Relative position with other agents: No position information available from other agents"
+
         # Get latest 5 action history records (or all if less than 5)
         action_history = context.get("action_history", [])
         latest_history = action_history[-5:] if len(action_history) > 5 else action_history
@@ -828,6 +969,9 @@ Relevant historical memories:
 **Messages from other agents (IMPORTANT - analyze and consider these before deciding):**
 {messages_text}
 When other agents have reported discoveries or explored certain regions, use this information to **reduce overlap** and **improve overall coverage**.
+
+**Relative position with other agents:**
+{relative_positions_section}
 
 Task goal: Explore as many new objects as possible, avoid revisiting already explored areas. Analize the screen shot and decide the next action.
 
@@ -1037,9 +1181,30 @@ class ExecutionNode(Node):
             agent_id = private_property["agent_id"]
             message = private_property["message_to_others"]
             perception = private_property["perception"]
+
+            # Add position and rotation information to the message
+            position = private_property.get("position")
+            rotation = private_property.get("rotation")
+
+            # Format position and rotation for message
+            pos_str = ""
+            rot_str = ""
+            if position and len(position) == 3:
+                pos_str = f"({position[0]:.2f}, {position[1]:.2f}, {position[2]:.2f})"
+            if rotation and len(rotation) == 4:
+                rot_str = f"({rotation[0]:.4f}, {rotation[1]:.4f}, {rotation[2]:.4f}, {rotation[3]:.4f})"
+
+            # Add position and rotation info before the message
+            enhanced_message = ""
+            if pos_str:
+                enhanced_message += f"[POS:{pos_str}]"
+            if rot_str:
+                enhanced_message += f"[ROT:{rot_str}]"
+            enhanced_message += message
+
             try:
-                perception.send_message(agent_id, "all", message)
-                print(f"[{agent_id}] Sent message: {message}")
+                perception.send_message(agent_id, "all", enhanced_message)
+                print(f"[{agent_id}] Sent message: {enhanced_message}")
             except Exception as e:
                 print(f"[{agent_id}] Failed to send message: {e}")
         
