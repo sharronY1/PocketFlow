@@ -349,6 +349,15 @@ class CommunicationNode(Node):
     """Communication node: Read messages from other agents"""
 
     def prep(self, private_property):
+        agent_id = private_property["agent_id"]
+        step_count = private_property["step_count"]
+
+        # 在CommunicationNode开始时等待，确保其他agents有时间发送消息
+        if step_count > 1:  # 第一轮不需要等待
+            wait_time = 3.0
+            print(f"[{agent_id}] Waiting {wait_time}s for other agents to send messages...")
+            time.sleep(wait_time)
+
         return private_property["agent_id"], private_property["perception"]
 
     def exec(self, prep_res):
@@ -1205,11 +1214,6 @@ class ExecutionNode(Node):
             try:
                 perception.send_message(agent_id, "all", enhanced_message)
                 print(f"[{agent_id}] Sent message: {enhanced_message}")
-
-                # 等待3秒让消息传播到其他agents
-                print(f"[{agent_id}] Waiting 3 seconds for message propagation...")
-                time.sleep(3)
-
             except Exception as e:
                 print(f"[{agent_id}] Failed to send message: {e}")
         
