@@ -1307,13 +1307,16 @@ class UpdateMemoryNode(Node):
         
         # Decide whether to continue exploration
         max_steps = private_property.get("max_steps", 20)
-        
+
         if private_property["step_count"] >= max_steps:
             print(f"[{agent_id}] Reached max steps ({max_steps}), ending exploration")
+            print("="*80)
             # Store flow control action for SharedMemoryUpdateNode
             private_property["_flow_control_action"] = "end"
             return "end"
-        
+
+        # Print round separator and continue to next round
+        print("="*80)
         # Store flow control action for SharedMemoryUpdateNode
         private_property["_flow_control_action"] = "continue"
         return "continue"

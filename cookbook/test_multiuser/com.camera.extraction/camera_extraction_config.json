@@ -1,11 +1,11 @@
 {
-    "outputBasePath": "D:\\output",
+    "outputBasePath": "E:\\output",
     "useProjectSubfolder": false,
     "frameInterval": 20,
     "screenshotIntervalSeconds": 1.0,
     "captureScreenshot": true,
     "autoScreenshotEnabled": false,
-    "agentControlRequestDir": "D:\\output\\agent_requests",
+    "agentControlRequestDir": "E:\\output\\agent_requests",
     "durationSeconds": 10,
     "autoAttachToMainCamera": true,
     "targetCameraTag": "MainCamera",
