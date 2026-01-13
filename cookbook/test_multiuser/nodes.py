@@ -388,7 +388,7 @@ class CommunicationNode(Node):
                     )
                     if relative_info:
                         relative_positions[sender] = relative_info
-                        print(f"[{agent_id}] Relative position to {sender}: {relative_info}")
+                        print(f"[{agent_id}] Agent {sender} is at my {relative_info}")
 
         # Store relative positions for DecisionNode
         private_property["relative_positions"] = relative_positions
