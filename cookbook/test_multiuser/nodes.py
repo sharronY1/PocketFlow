@@ -466,7 +466,7 @@ class CommunicationNode(Node):
             relations = []
 
             # Forward/Backward (along forward axis)
-            if abs(forward_dot) > 0.1:  # threshold to avoid noise
+            if abs(forward_dot) > 0.01:  # threshold to avoid noise
                 if forward_dot > 0:
                     relations.append("front")
                 else:
