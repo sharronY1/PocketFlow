@@ -1205,6 +1205,11 @@ class ExecutionNode(Node):
             try:
                 perception.send_message(agent_id, "all", enhanced_message)
                 print(f"[{agent_id}] Sent message: {enhanced_message}")
+
+                # 等待3秒让消息传播到其他agents
+                print(f"[{agent_id}] Waiting 3 seconds for message propagation...")
+                time.sleep(3)
+
             except Exception as e:
                 print(f"[{agent_id}] Failed to send message: {e}")
         
