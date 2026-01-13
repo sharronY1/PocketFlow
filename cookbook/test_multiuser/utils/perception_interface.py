@@ -69,6 +69,22 @@ def quaternion_to_directions(qx: float, qy: float, qz: float, qw: float) -> Tupl
         1 - 2 * (qx * qx + qz * qz),
         2 * (qy * qz + qw * qx),
     )
+
+    # 计算 right × up 叉积
+    cross_product = (
+        right[1] * up[2] - right[2] * up[1],
+        right[2] * up[0] - right[0] * up[2],
+        right[0] * up[1] - right[1] * up[0],
+    )
+
+    # 计算 cross_product 与 forward 的点积，判断是否同向
+    dot_product = cross_product[0] * forward[0] + cross_product[1] * forward[1] + cross_product[2] * forward[2]
+    is_same_direction = dot_product > 0
+
+    print(f"[QuaternionCheck] right × up = ({cross_product[0]:.6f}, {cross_product[1]:.6f}, {cross_product[2]:.6f}), "
+          f"forward = ({forward[0]:.6f}, {forward[1]:.6f}, {forward[2]:.6f}), "
+          f"dot = {dot_product:.6f}, same_direction = {is_same_direction}")
+
     return _normalize_vector(forward), _normalize_vector(right), _normalize_vector(up)
 
 
@@ -817,7 +833,7 @@ class UnityCameraPerception(PerceptionInterface):
         unity_output_base_path: str,
         agent_request_dir: Optional[str] = None,
         press_time: float = 1.0,
-        screenshot_timeout: float = 5.0,
+        screenshot_timeout: float = 10.0,
         messaging_base_url: Optional[str] = None,
     ):
         """
