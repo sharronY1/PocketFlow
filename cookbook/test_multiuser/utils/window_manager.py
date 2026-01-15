@@ -135,7 +135,8 @@ if __name__ == "__main__":
 
 def check_unity_windows_exist(expected_count: Optional[int] = None) -> Dict[str, Any]:
     """
-    Check if Meta XR Simulator windows exist
+    Lightweight check if Meta XR Simulator windows exist.
+    Uses find_window_by_title instead of enumerating all windows to avoid performance issues.
 
     Args:
         expected_count: Expected number of windows, if specified will check if count matches
@@ -144,7 +145,7 @@ def check_unity_windows_exist(expected_count: Optional[int] = None) -> Dict[str,
         {
             "windows_exist": bool,      # Whether any windows exist
             "window_count": int,        # Number of windows found
-            "windows": List[Window],    # List of window objects found
+            "windows": List[Window],    # List of window objects found (may be empty for performance)
             "count_matches": bool,      # Whether count matches expected (if specified)
             "error": str                # Error message if any
         }
@@ -160,20 +161,24 @@ def check_unity_windows_exist(expected_count: Optional[int] = None) -> Dict[str,
     WINDOW_TITLE = "Meta XR Simulator"
 
     try:
-        all_windows = gw.getAllWindows()
-        simulator_windows = [w for w in all_windows if w.title == WINDOW_TITLE]
-
+        # Lightweight check: only try to find the specific window with short timeout
+        # This avoids enumerating all windows which can cause Unity to freeze
+        window = find_window_by_title(WINDOW_TITLE, timeout=0.5)  # Short timeout for quick check
+        
+        windows_exist = window is not None
+        window_count = 1 if windows_exist else 0
+        
         result = {
-            "windows_exist": len(simulator_windows) > 0,
-            "window_count": len(simulator_windows),
-            "windows": simulator_windows
+            "windows_exist": windows_exist,
+            "window_count": window_count,
+            "windows": [window] if window else []  # Only include found window, not all windows
         }
 
         # Check count match if expected count specified
         if expected_count is not None:
-            result["count_matches"] = len(simulator_windows) >= expected_count
+            result["count_matches"] = window_count >= expected_count
             if not result["count_matches"]:
-                result["warning"] = f"Expected {expected_count} windows, found {len(simulator_windows)}"
+                result["warning"] = f"Expected {expected_count} windows, found {window_count}"
         else:
             result["count_matches"] = True
 
