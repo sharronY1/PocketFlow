@@ -71,9 +71,7 @@ class CollectStatusNode(Node):
             "agent_ids": shared["agent_ids"],
             "poll_interval": shared.get("poll_interval", 0.5),  # Poll interval (seconds)
             "wait_timeout": shared.get("wait_timeout", 120),    # Wait timeout (seconds)
-            "round": shared.get("round", 0),
-            "consecutive_timeouts": shared.get("consecutive_timeouts", 0),
-            "max_consecutive_timeouts": shared.get("max_consecutive_timeouts", 3)
+            "round": shared.get("round", 0)
         }
     
     def exec(self, prep_res: Dict[str, Any]) -> Dict[str, Any]:
@@ -172,20 +170,8 @@ class CollectStatusNode(Node):
             return "emergency_stop"
 
         if exec_res.get("timeout"):
-            consecutive_timeouts = shared.get("consecutive_timeouts", 0) + 1
-            shared["consecutive_timeouts"] = consecutive_timeouts
-
-            max_timeouts = prep_res["max_consecutive_timeouts"]
-            print(f"[Coordinator] Warning: Timeout occurred ({consecutive_timeouts}/{max_timeouts})")
-
-            if consecutive_timeouts >= max_timeouts:
-                print(f"[Coordinator] Too many consecutive timeouts, triggering emergency stop!")
-                return "emergency_stop"
-
-            return "timeout"
-
-        # Reset consecutive timeouts on success
-        shared["consecutive_timeouts"] = 0
+            print(f"[Coordinator] Timeout occurred, triggering emergency stop!")
+            return "emergency_stop"
 
         if not exec_res.get("all_ready"):
             print("[Coordinator] Not all agents ready, waiting...")
