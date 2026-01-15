@@ -214,6 +214,11 @@ class EmergencyStopNode(Node):
             )
             resp.raise_for_status()
 
+            # Wait for agents to receive and process stop signal
+            print("[Coordinator] Waiting for agents to receive stop signal...")
+            import time
+            time.sleep(10.0)  # Wait 10 seconds for agents to receive stop signal and terminate
+
             return {
                 "success": True,
                 "message": "Emergency stop signal broadcasted successfully"

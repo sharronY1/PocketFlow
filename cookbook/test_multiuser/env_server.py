@@ -481,6 +481,9 @@ async def sync_trigger_stop():
 
     Called by Coordinator when it detects an error condition that requires
     all agents to stop gracefully.
+    
+    Note: This is an emergency stop, so we keep the stop signal active
+    for a longer period to ensure all agents receive it.
     """
     global sync_stop_signal, sync_stop_event
 
@@ -491,13 +494,15 @@ async def sync_trigger_stop():
     # Notify all waiting Agents to stop
     sync_stop_event.set()
 
-    # Brief delay then reset signal and event for next round
-    await asyncio.sleep(0.1)
+    # Keep stop signal active for 30 seconds to ensure all agents receive it
+    # This is an emergency stop, so we don't reset immediately
+    await asyncio.sleep(30.0)
 
+    # After waiting, reset for cleanup (though system should be stopped by then)
     with sync_lock:
         sync_stop_signal = False
 
-    # Create new event object for next round
+    # Create new event object (for cleanup)
     sync_stop_event = asyncio.Event()
 
     return {

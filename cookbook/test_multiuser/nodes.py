@@ -173,8 +173,24 @@ class PerceptionNode(Node):
                 # Report error to coordinator if sync is enabled
                 if sync_enabled:
                     self._report_error(sync_server_url, agent_id, "unity_window_missing", error_reason)
+                    
+                    # Wait for stop signal from coordinator
+                    print(f"[{agent_id}] Waiting for stop signal from Coordinator...")
+                    try:
+                        resp = requests.post(
+                            f"{sync_server_url}/sync/wait_capture",
+                            json={"agent_id": agent_id, "timeout": 30.0},  # Wait up to 30s for stop signal
+                            timeout=35.0
+                        )
+                        resp.raise_for_status()
+                        data = resp.json()
+                        if data.get("error") == "stop_signal_received":
+                            print(f"[{agent_id}] Received STOP signal from Coordinator! Terminating gracefully...")
+                            raise RuntimeError("Coordinator requested emergency stop")
+                    except requests.RequestException:
+                        pass  # If coordinator is not responding, exit anyway
                 
-                # Raise exception to stop agent
+                # Exit agent
                 raise RuntimeError(f"Unity window missing: {error_reason}")
 
         # === Synchronization mode: Wait for Coordinator's capture signal ===
@@ -189,8 +205,33 @@ class PerceptionNode(Node):
                 sync_wait_timeout
             )
 
+            if capture_ok is None:
+                # Timeout or error occurred - report to coordinator and wait for stop signal
+                error_msg = "Timeout waiting for capture signal from Coordinator"
+                print(f"[{agent_id}] CRITICAL: {error_msg}")
+                self._report_error(sync_server_url, agent_id, "capture_timeout", error_msg)
+                
+                # Wait for stop signal from coordinator (with timeout)
+                print(f"[{agent_id}] Waiting for stop signal from Coordinator...")
+                try:
+                    resp = requests.post(
+                        f"{sync_server_url}/sync/wait_capture",
+                        json={"agent_id": agent_id, "timeout": 30.0},  # Wait up to 30s for stop signal
+                        timeout=35.0
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    if data.get("error") == "stop_signal_received":
+                        print(f"[{agent_id}] Received STOP signal from Coordinator! Terminating gracefully...")
+                        raise RuntimeError("Coordinator requested emergency stop after timeout")
+                except requests.RequestException:
+                    pass  # If coordinator is not responding, exit anyway
+                
+                # If we get here, coordinator didn't send stop signal, but we should still exit
+                raise RuntimeError(f"Capture timeout: {error_msg}")
+            
             if not capture_ok:
-                print(f"[{agent_id}] Warning: Timeout waiting for capture signal, proceeding anyway")
+                print(f"[{agent_id}] Warning: Failed to receive capture signal, proceeding anyway")
         
         # Step 3: Execute screenshot
         # Use perception interface to get visible objects
@@ -236,7 +277,7 @@ class PerceptionNode(Node):
         server_url: str, 
         agent_id: str, 
         timeout: float
-    ) -> bool:
+    ) -> Optional[bool]:
         """
         Block and wait for Coordinator's capture signal
         
@@ -248,7 +289,7 @@ class PerceptionNode(Node):
             timeout: Maximum wait time (seconds)
             
         Returns:
-            True if capture signal received, False if timeout
+            True if capture signal received, False if other error, None if timeout
         """
         print(f"[{agent_id}] Waiting for synchronized capture signal...")
         
@@ -278,10 +319,11 @@ class PerceptionNode(Node):
                 
         except requests.Timeout:
             print(f"[{agent_id}] HTTP request timeout waiting for capture signal")
-            return False
+            # Timeout is treated as an error - report to coordinator
+            return None  # Return None to indicate timeout error
         except requests.RequestException as e:
             print(f"[{agent_id}] Error waiting for capture signal: {e}")
-            return False
+            return None  # Return None to indicate error
 
     def _report_error(self, server_url: str, agent_id: str, error_type: str, message: str) -> bool:
         """
@@ -1190,6 +1232,23 @@ message_to_others: Information to share with other agents (optional)
                             )
                             resp.raise_for_status()
                             print(f"[{agent_id}] Reported API error to Coordinator")
+                            
+                            # Wait for stop signal from coordinator
+                            print(f"[{agent_id}] Waiting for stop signal from Coordinator...")
+                            try:
+                                resp = requests.post(
+                                    f"{sync_server_url}/sync/wait_capture",
+                                    json={"agent_id": agent_id, "timeout": 30.0},  # Wait up to 30s for stop signal
+                                    timeout=35.0
+                                )
+                                resp.raise_for_status()
+                                data = resp.json()
+                                if data.get("error") == "stop_signal_received":
+                                    print(f"[{agent_id}] Received STOP signal from Coordinator! Terminating gracefully...")
+                                    raise RuntimeError("Coordinator requested emergency stop")
+                            except requests.RequestException:
+                                pass  # If coordinator is not responding, exit anyway
+                                
                         except requests.RequestException as report_err:
                             print(f"[{agent_id}] Error reporting API error to Coordinator: {report_err}")
                     
