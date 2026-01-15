@@ -1,7 +1,5 @@
 # Configuration file (contains sensitive info, do not commit)
 config.json
-com.camera.extraction/camera_extraction_config.json
-
 # Python
 __pycache__/
 *.py[cod]
