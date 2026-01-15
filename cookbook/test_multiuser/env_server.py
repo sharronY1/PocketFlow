@@ -61,6 +61,9 @@ sync_capture_event = asyncio.Event()
 # Event for notifying waiting Agents to stop
 sync_stop_event = asyncio.Event()
 
+# Agent error reports (for Unity window crashes, API errors, etc.)
+agent_errors: Dict[str, Dict[str, Any]] = {}  # {agent_id: {"error_type": str, "message": str, "timestamp": datetime}}
+
 
 class SendMessageRequest(BaseModel):
     sender: str
@@ -96,12 +99,20 @@ class SyncWaitCaptureRequest(BaseModel):
     timeout: Optional[float] = 60.0  # Timeout in seconds
 
 
+class SyncReportErrorRequest(BaseModel):
+    """Agent reports an error condition"""
+    agent_id: str
+    error_type: str  # e.g., "unity_window_missing", "api_quota_exceeded"
+    message: str
+
+
 class SyncStatusResponse(BaseModel):
     """Synchronization status response"""
     expected_agents: List[str]
     ready_agents: List[str]
     all_ready: bool
     capture_signal: bool
+    agent_errors: Optional[Dict[str, Dict[str, Any]]] = None  # Agent error reports
 
 
 @app.get("/")
@@ -380,15 +391,20 @@ async def sync_status():
     
     Coordinator polls this API to check if all Agents are ready.
     When all_ready=True, Coordinator can call trigger_capture.
+    Also returns any agent error reports.
     """
     with sync_lock:
         all_ready = sync_expected_agents and sync_ready_agents >= sync_expected_agents
+        
+        # Return current agent errors (copy to avoid lock issues)
+        errors_copy = dict(agent_errors) if agent_errors else None
         
         return SyncStatusResponse(
             expected_agents=list(sync_expected_agents),
             ready_agents=list(sync_ready_agents),
             all_ready=all_ready,
-            capture_signal=sync_capture_signal
+            capture_signal=sync_capture_signal,
+            agent_errors=errors_copy
         )
 
 
@@ -430,6 +446,31 @@ async def sync_trigger_capture():
     return {
         "status": "triggered",
         "triggered_agents": triggered_agents
+    }
+
+
+@app.post("/sync/report_error")
+async def sync_report_error(request: SyncReportErrorRequest):
+    """
+    Agent reports an error condition (e.g., Unity window missing, API quota exceeded)
+    
+    Called by agents when they detect critical errors that should trigger system-wide stop.
+    """
+    global agent_errors
+    
+    with sync_lock:
+        agent_errors[request.agent_id] = {
+            "error_type": request.error_type,
+            "message": request.message,
+            "timestamp": datetime.now()
+        }
+    
+    print(f"[SyncServer] Agent {request.agent_id} reported error: {request.error_type} - {request.message}")
+    
+    return {
+        "status": "error_reported",
+        "agent_id": request.agent_id,
+        "error_type": request.error_type
     }
 
 

@@ -134,8 +134,6 @@ def run_coordinator(
     max_rounds: int = 100,
     poll_interval: float = 0.5,
     wait_timeout: float = 120.0,
-    unity_window_check_enabled: bool = True,
-    unity_window_check_interval: int = 30,
     max_consecutive_timeouts: int = 3
 ):
     """
@@ -183,10 +181,6 @@ def run_coordinator(
         "poll_interval": poll_interval,
         "wait_timeout": wait_timeout,
 
-        # Unity window health checking
-        "unity_window_check_enabled": unity_window_check_enabled,
-        "unity_window_check_interval": unity_window_check_interval,
-        "last_window_check_time": 0,
         "max_consecutive_timeouts": max_consecutive_timeouts,
         "consecutive_timeouts": 0,
 
@@ -281,19 +275,6 @@ Examples:
         help="Wait timeout in seconds (default: 120)"
     )
 
-    parser.add_argument(
-        "--unity-window-check-enabled",
-        action="store_true",
-        default=True,
-        help="Enable Unity window health checking (default: True)"
-    )
-
-    parser.add_argument(
-        "--unity-window-check-interval",
-        type=int,
-        default=30,
-        help="Unity window health check interval in seconds (default: 30)"
-    )
 
     parser.add_argument(
         "--max-consecutive-timeouts",
@@ -310,8 +291,6 @@ Examples:
         max_rounds=args.rounds,
         poll_interval=args.poll_interval,
         wait_timeout=args.timeout,
-        unity_window_check_enabled=args.unity_window_check_enabled,
-        unity_window_check_interval=args.unity_window_check_interval,
         max_consecutive_timeouts=args.max_consecutive_timeouts
     )
 

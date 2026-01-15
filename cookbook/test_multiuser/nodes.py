@@ -162,6 +162,21 @@ class PerceptionNode(Node):
         sync_wait_timeout = prep_res["sync_wait_timeout"]
         unity_output_base_path = prep_res["unity_output_base_path"]
         
+        # === Check Unity window health (only for modes that require Unity window) ===
+        perception_type = perception.get_environment_info().get("type", "")
+        if perception_type in ["unity", "unity-camera"]:
+            window_health = self._check_unity_window_health()
+            if not window_health.get("healthy", True):
+                error_reason = window_health.get("reason", "Unity window not found")
+                print(f"[{agent_id}] CRITICAL: Unity window health check failed: {error_reason}")
+                
+                # Report error to coordinator if sync is enabled
+                if sync_enabled:
+                    self._report_error(sync_server_url, agent_id, "unity_window_missing", error_reason)
+                
+                # Raise exception to stop agent
+                raise RuntimeError(f"Unity window missing: {error_reason}")
+
         # === Synchronization mode: Wait for Coordinator's capture signal ===
         if sync_enabled:
             # Step 1: Report to Coordinator that we've reached PerceptionNode
@@ -266,6 +281,39 @@ class PerceptionNode(Node):
             return False
         except requests.RequestException as e:
             print(f"[{agent_id}] Error waiting for capture signal: {e}")
+            return False
+
+    def _report_error(self, server_url: str, agent_id: str, error_type: str, message: str) -> bool:
+        """
+        Report error condition to Coordinator
+        
+        Calls POST /sync/report_error to notify Coordinator of critical errors
+        (e.g., Unity window missing, API quota exceeded)
+        
+        Args:
+            server_url: Synchronization server URL
+            agent_id: Agent identifier
+            error_type: Type of error (e.g., "unity_window_missing", "api_quota_exceeded")
+            message: Error message
+            
+        Returns:
+            True if successfully reported, False otherwise
+        """
+        try:
+            resp = requests.post(
+                f"{server_url}/sync/report_error",
+                json={
+                    "agent_id": agent_id,
+                    "error_type": error_type,
+                    "message": message
+                },
+                timeout=10
+            )
+            resp.raise_for_status()
+            print(f"[{agent_id}] Reported error to Coordinator: {error_type} - {message}")
+            return True
+        except requests.RequestException as e:
+            print(f"[{agent_id}] Error reporting error to Coordinator: {e}")
             return False
     
     def _check_unity_window_health(self) -> Dict[str, Any]:
@@ -879,10 +927,20 @@ class DecisionNode(Node):
             "move_speed": private_property.get("move_speed", 1.0),
             "press_time": private_property.get("press_time", 1.0),
             "forbidden_action": private_property.get("forbidden_action", []),
+            # Sync information for error reporting
+            "sync_enabled": private_property.get("sync_enabled", False),
+            "sync_server_url": private_property.get("sync_server_url"),
         }
-        return context
+        return context, private_property  # Return both context and private_property for error reporting
     
-    def exec(self, context):
+    def exec(self, prep_res):
+        # Unpack context and private_property
+        if isinstance(prep_res, tuple):
+            context, private_property = prep_res
+        else:
+            # Backward compatibility
+            context = prep_res
+            private_property = {}
         # Optional offline mode: skip LLM when DISABLE_LLM is set
         if os.getenv("DISABLE_LLM"):
             action = "forward" if (context.get("step_count", 0) % 2 == 0) else "backward"
@@ -1105,7 +1163,41 @@ message_to_others: Information to share with other agents (optional)
 
         for _ in range(max_loop):
             prompt = build_prompt(forbidden_actions)
-            response = call_llm(prompt)
+            try:
+                response = call_llm(prompt)
+            except Exception as e:
+                error_str = str(e).lower()
+                # Check for API quota/balance errors
+                if any(keyword in error_str for keyword in ["quota", "balance", "insufficient", "limit", "rate limit", "429"]):
+                    agent_id = context.get("agent_id", "Unknown")
+                    sync_server_url = context.get("sync_server_url")
+                    sync_enabled = context.get("sync_enabled", False)
+                    
+                    error_msg = f"API quota/balance error: {str(e)}"
+                    print(f"[{agent_id}] CRITICAL: {error_msg}")
+                    
+                    # Report error to coordinator if sync is enabled
+                    if sync_enabled and sync_server_url:
+                        try:
+                            resp = requests.post(
+                                f"{sync_server_url}/sync/report_error",
+                                json={
+                                    "agent_id": agent_id,
+                                    "error_type": "api_quota_exceeded",
+                                    "message": error_msg
+                                },
+                                timeout=10
+                            )
+                            resp.raise_for_status()
+                            print(f"[{agent_id}] Reported API error to Coordinator")
+                        except requests.RequestException as report_err:
+                            print(f"[{agent_id}] Error reporting API error to Coordinator: {report_err}")
+                    
+                    # Raise exception to stop agent
+                    raise RuntimeError(f"API quota exceeded: {str(e)}")
+                else:
+                    # Other errors, re-raise
+                    raise
 
             try:
                 parsed = parse_yaml_from_llm_response(response)
