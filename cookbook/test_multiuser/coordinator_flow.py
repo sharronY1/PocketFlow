@@ -52,18 +52,20 @@ import os
 class CollectStatusNode(Node):
     """
     Collect status node for all sub-agents
-    
+
     Responsibilities:
     - Poll sync server to check if all agents have reported ready
     - When all agents are ready, return "default" to continue to DecisionNode
     - On timeout, return "timeout" for error handling
-    
+    - Check Unity window health to detect crashes
+
     How it works:
     - Sub-agents call /sync/ready in PerceptionNode.exec() to report ready
     - This node calls /sync/status to check all_ready status
     - Poll interval and timeout are configurable
+    - Periodically checks if Unity/Meta XR Simulator windows exist
     """
-    
+
     def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
         """Prep phase: Get configuration parameters"""
         return {
@@ -71,19 +73,27 @@ class CollectStatusNode(Node):
             "agent_ids": shared["agent_ids"],
             "poll_interval": shared.get("poll_interval", 0.5),  # Poll interval (seconds)
             "wait_timeout": shared.get("wait_timeout", 120),    # Wait timeout (seconds)
-            "round": shared.get("round", 0)
+            "round": shared.get("round", 0),
+            "consecutive_timeouts": shared.get("consecutive_timeouts", 0),
+            "max_consecutive_timeouts": shared.get("max_consecutive_timeouts", 3),
+            # Unity window health checking
+            "unity_window_check_enabled": shared.get("unity_window_check_enabled", True),
+            "unity_window_check_interval": shared.get("unity_window_check_interval", 30),  # Check every 30 seconds
+            "last_window_check_time": shared.get("last_window_check_time", 0)
         }
     
     def exec(self, prep_res: Dict[str, Any]) -> Dict[str, Any]:
         """
         Exec phase: Poll and wait for all agents to be ready
-        
+
         Returns:
             {
                 "all_ready": bool,      # Whether all agents are ready
                 "ready_agents": list,   # List of ready agents
                 "timeout": bool,        # Whether timeout occurred
-                "round": int            # Current round number
+                "round": int,           # Current round number
+                "unity_crash_detected": bool,  # Whether Unity crash was detected
+                "crashed_agents": list        # List of agents with crashed Unity windows
             }
         """
         server_url = prep_res["sync_server_url"]
@@ -91,69 +101,209 @@ class CollectStatusNode(Node):
         poll_interval = prep_res["poll_interval"]
         timeout = prep_res["wait_timeout"]
         current_round = prep_res["round"]
-        
+        unity_window_check_enabled = prep_res["unity_window_check_enabled"]
+        unity_window_check_interval = prep_res["unity_window_check_interval"]
+        last_window_check_time = prep_res["last_window_check_time"]
+
         print(f"[Coordinator] Round {current_round + 1}: Waiting for all agents to be ready...")
         print(f"[Coordinator] Expected agents: {agent_ids}")
-        
+
         start_time = time.time()
         last_status = {}
-        
+
         while time.time() - start_time < timeout:
+            # === Unity window health checking ===
+            current_time = time.time()
+            if (unity_window_check_enabled and
+                current_time - last_window_check_time >= unity_window_check_interval):
+
+                print(f"[Coordinator] Performing Unity window health check...")
+                window_health_results = self._check_unity_windows_health(agent_ids)
+
+                # Check if any Unity windows are missing (indicating crash)
+                crashed_agents = [agent_id for agent_id, healthy in window_health_results.items() if not healthy]
+                if crashed_agents:
+                    print(f"[Coordinator] CRITICAL: Unity windows not found for agents: {crashed_agents}")
+                    print("[Coordinator] This indicates Unity/Meta XR Simulator has crashed!")
+                    return {
+                        "all_ready": False,
+                        "ready_agents": [],
+                        "timeout": False,
+                        "round": current_round,
+                        "unity_crash_detected": True,
+                        "crashed_agents": crashed_agents
+                    }
+
             try:
                 # Call sync server to get status
                 resp = requests.get(f"{server_url}/sync/status", timeout=10)
                 resp.raise_for_status()
                 status = resp.json()
-                
+
                 ready_agents = status.get("ready_agents", [])
                 all_ready = status.get("all_ready", False)
-                
+
                 # Only print when status changes
                 if status != last_status:
                     print(f"[Coordinator] Status: {len(ready_agents)}/{len(agent_ids)} agents ready")
                     if ready_agents:
                         print(f"[Coordinator] Ready: {ready_agents}")
                     last_status = status
-                
+
                 if all_ready:
                     print(f"[Coordinator] All agents are ready!")
                     return {
                         "all_ready": True,
                         "ready_agents": ready_agents,
                         "timeout": False,
-                        "round": current_round
+                        "round": current_round,
+                        "unity_crash_detected": False
                     }
-                    
+
             except requests.RequestException as e:
                 print(f"[Coordinator] Error checking status: {e}")
-            
+
             time.sleep(poll_interval)
-        
+
         # Timeout
         print(f"[Coordinator] Timeout waiting for agents after {timeout}s")
         return {
             "all_ready": False,
             "ready_agents": last_status.get("ready_agents", []),
             "timeout": True,
-            "round": current_round
+            "round": current_round,
+            "unity_crash_detected": False
         }
+
+    def _check_unity_windows_health(self, agent_ids: List[str]) -> Dict[str, bool]:
+        """
+        Check if Unity windows exist for all agents
+
+        Returns:
+            Dict[agent_id, is_healthy] - True if window exists, False if window is missing
+        """
+        try:
+            import pygetwindow as gw
+        except ImportError:
+            print("[Coordinator] Warning: pygetwindow not installed, skipping Unity window health check")
+            return {agent_id: True for agent_id in agent_ids}  # Assume all healthy
+
+        WINDOW_TITLE = "Meta XR Simulator"
+        results = {}
+
+        # Find Meta XR Simulator windows
+        all_windows = gw.getAllWindows()
+        simulator_windows = [w for w in all_windows if w.title == WINDOW_TITLE]
+
+        if not simulator_windows:
+            print(f"[Coordinator] CRITICAL: No '{WINDOW_TITLE}' windows found!")
+            return {agent_id: False for agent_id in agent_ids}
+
+        # Check each agent has corresponding window
+        # Conservative strategy: if at least one Unity window exists, consider all agents healthy
+        # More complex strategy could check window count matches agent count
+        window_count = len(simulator_windows)
+        print(f"[Coordinator] Found {window_count} Unity window(s)")
+
+        # Conservative approach: any window existence means healthy
+        is_healthy = window_count > 0
+
+        for agent_id in agent_ids:
+            results[agent_id] = is_healthy
+
+        return results
     
     def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Dict[str, Any]) -> str:
         """Post phase: Update shared state, decide next step"""
         shared["current_status"] = exec_res
         shared["round"] = exec_res["round"]
-        
+
+        # Update window check timestamp
+        if prep_res.get("unity_window_check_enabled"):
+            shared["last_window_check_time"] = time.time()
+
+        # Check for Unity crash detection
+        if exec_res.get("unity_crash_detected"):
+            print("[Coordinator] Unity crash detected, triggering emergency stop!")
+            return "emergency_stop"
+
         if exec_res.get("timeout"):
-            print("[Coordinator] Warning: Timeout occurred, retrying...")
-            # On timeout, can choose to retry or end
-            # Here we choose to retry
+            consecutive_timeouts = shared.get("consecutive_timeouts", 0) + 1
+            shared["consecutive_timeouts"] = consecutive_timeouts
+
+            max_timeouts = prep_res["max_consecutive_timeouts"]
+            print(f"[Coordinator] Warning: Timeout occurred ({consecutive_timeouts}/{max_timeouts})")
+
+            if consecutive_timeouts >= max_timeouts:
+                print(f"[Coordinator] Too many consecutive timeouts, triggering emergency stop!")
+                return "emergency_stop"
+
             return "timeout"
-        
+
+        # Reset consecutive timeouts on success
+        shared["consecutive_timeouts"] = 0
+
         if not exec_res.get("all_ready"):
             print("[Coordinator] Not all agents ready, waiting...")
-            return "timeout"  # Retry
-        
+            return "timeout"
+
         return "default"
+
+
+class EmergencyStopNode(Node):
+    """
+    Emergency stop node: Broadcast stop signal to all agents when critical errors occur
+    """
+
+    def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
+        """Prep phase: Get decision and configuration"""
+        return {
+            "sync_server_url": shared["sync_server_url"],
+            "agent_ids": shared["agent_ids"],
+            "round": shared.get("round", 0)
+        }
+
+    def exec(self, prep_res: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Exec phase: Send stop signal to all agents
+
+        Returns:
+            {
+                "success": bool,
+                "message": str,
+                "error": str (optional)
+            }
+        """
+        server_url = prep_res["sync_server_url"]
+
+        try:
+            print("[Coordinator] Broadcasting emergency stop signal to all agents...")
+            resp = requests.post(
+                f"{server_url}/sync/trigger_stop",
+                timeout=10
+            )
+            resp.raise_for_status()
+
+            return {
+                "success": True,
+                "message": "Emergency stop signal broadcasted successfully"
+            }
+
+        except requests.RequestException as e:
+            print(f"[Coordinator] Error broadcasting stop signal: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Dict[str, Any]) -> str:
+        """Post phase: Decide flow direction"""
+        if exec_res.get("success"):
+            print("[Coordinator] Emergency stop completed, ending coordination")
+        else:
+            print("[Coordinator] Emergency stop failed, but ending coordination anyway")
+
+        return "end"
 
 
 class DecisionNode(Node):
@@ -357,26 +507,31 @@ class DispatchNode(Node):
 def create_coordinator_flow() -> Flow:
     """
     Create Coordinator Flow
-    
+
     Flow structure:
     ===============
     CollectStatusNode → DecisionNode → DispatchNode
             ↑                               │
             └───────── "continue" ──────────┘
                        "end" → finish
-    
+                       "emergency_stop" → EmergencyStopNode → end
+
     Branch description:
     - CollectStatusNode:
       - "default" → DecisionNode (all agents ready)
       - "timeout" → CollectStatusNode (retry)
-    
+      - "emergency_stop" → EmergencyStopNode (Unity crash or too many timeouts)
+
     - DecisionNode:
       - "default" → DispatchNode
-    
+
     - DispatchNode:
       - "continue" → CollectStatusNode (continue to next round)
       - "end" → finish
-    
+
+    - EmergencyStopNode:
+      - "end" → finish
+
     Returns:
         Configured Flow instance
     """
@@ -384,15 +539,18 @@ def create_coordinator_flow() -> Flow:
     collect = CollectStatusNode()
     decide = DecisionNode()
     dispatch = DispatchNode()
-    
+    emergency_stop = EmergencyStopNode()
+
     # Connect nodes: CollectStatus → Decision → Dispatch
     collect >> decide >> dispatch
-    
+
     # Branch handling
     collect - "timeout" >> collect  # Timeout retry
+    collect - "emergency_stop" >> emergency_stop  # Emergency stop
     dispatch - "continue" >> collect  # Continue to next round
     dispatch - "end"  # End (no subsequent nodes)
-    
+    emergency_stop - "end"  # Emergency stop ends
+
     # Create and return Flow
     return Flow(start=collect)
 

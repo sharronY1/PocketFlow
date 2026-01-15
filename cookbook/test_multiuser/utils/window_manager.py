@@ -4,6 +4,7 @@ Handles finding and focusing of application windows
 """
 import time
 import sys
+from typing import Optional, Dict, Any, List
 
 try:
     import pygetwindow as gw  # type: ignore
@@ -131,3 +132,57 @@ if __name__ == "__main__":
         print("[Test] Failed - Could not find or focus window.")
         sys.exit(1)
 
+
+def check_unity_windows_exist(expected_count: Optional[int] = None) -> Dict[str, Any]:
+    """
+    Check if Meta XR Simulator windows exist
+
+    Args:
+        expected_count: Expected number of windows, if specified will check if count matches
+
+    Returns:
+        {
+            "windows_exist": bool,      # Whether any windows exist
+            "window_count": int,        # Number of windows found
+            "windows": List[Window],    # List of window objects found
+            "count_matches": bool,      # Whether count matches expected (if specified)
+            "error": str                # Error message if any
+        }
+    """
+    if gw is None:
+        return {
+            "windows_exist": False,
+            "window_count": 0,
+            "windows": [],
+            "error": "pygetwindow not installed"
+        }
+
+    WINDOW_TITLE = "Meta XR Simulator"
+
+    try:
+        all_windows = gw.getAllWindows()
+        simulator_windows = [w for w in all_windows if w.title == WINDOW_TITLE]
+
+        result = {
+            "windows_exist": len(simulator_windows) > 0,
+            "window_count": len(simulator_windows),
+            "windows": simulator_windows
+        }
+
+        # Check count match if expected count specified
+        if expected_count is not None:
+            result["count_matches"] = len(simulator_windows) >= expected_count
+            if not result["count_matches"]:
+                result["warning"] = f"Expected {expected_count} windows, found {len(simulator_windows)}"
+        else:
+            result["count_matches"] = True
+
+        return result
+
+    except Exception as e:
+        return {
+            "windows_exist": False,
+            "window_count": 0,
+            "windows": [],
+            "error": str(e)
+        }

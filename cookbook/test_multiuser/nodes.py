@@ -14,7 +14,7 @@ To enable sync mode, set in private_property:
     private_property["sync_server_url"] = "http://localhost:8000"
 """
 from pocketflow import Node
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
 from utils import (
     call_llm,
     get_embedding,
@@ -166,14 +166,14 @@ class PerceptionNode(Node):
         if sync_enabled:
             # Step 1: Report to Coordinator that we've reached PerceptionNode
             self._report_ready(sync_server_url, agent_id)
-            
+
             # Step 2: Block and wait for Coordinator's capture signal
             capture_ok = self._wait_for_capture_signal(
-                sync_server_url, 
-                agent_id, 
+                sync_server_url,
+                agent_id,
                 sync_wait_timeout
             )
-            
+
             if not capture_ok:
                 print(f"[{agent_id}] Warning: Timeout waiting for capture signal, proceeding anyway")
         
@@ -253,8 +253,13 @@ class PerceptionNode(Node):
                 return True
             else:
                 error = data.get("error", "unknown")
-                print(f"[{agent_id}] Wait for capture failed: {error}")
-                return False
+                if error == "stop_signal_received":
+                    print(f"[{agent_id}] Received STOP signal from Coordinator! Terminating gracefully...")
+                    # Raise specific exception to stop the agent
+                    raise RuntimeError("Coordinator requested emergency stop")
+                else:
+                    print(f"[{agent_id}] Wait for capture failed: {error}")
+                    return False
                 
         except requests.Timeout:
             print(f"[{agent_id}] HTTP request timeout waiting for capture signal")
@@ -263,6 +268,34 @@ class PerceptionNode(Node):
             print(f"[{agent_id}] Error waiting for capture signal: {e}")
             return False
     
+    def _check_unity_window_health(self) -> Dict[str, Any]:
+        """
+        Check if Unity window exists and is healthy
+
+        Returns:
+            {
+                "healthy": bool,
+                "reason": str (if not healthy)
+            }
+        """
+        try:
+            from utils.window_manager import check_unity_windows_exist
+            result = check_unity_windows_exist()
+
+            if result["windows_exist"]:
+                return {"healthy": True}
+            else:
+                return {
+                    "healthy": False,
+                    "reason": result.get("error", "Unity window not found")
+                }
+
+        except ImportError:
+            # If window manager not available, assume healthy
+            return {"healthy": True, "reason": "Window checking not available"}
+        except Exception as e:
+            return {"healthy": False, "reason": f"Window check error: {e}"}
+
     def post(self, private_property, prep_res, exec_res):
         # Extract visible objects and unity_output_base_path from exec_res
         visible = exec_res.get("visible", []) if isinstance(exec_res, dict) else exec_res

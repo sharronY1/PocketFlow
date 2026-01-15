@@ -49,11 +49,17 @@ sync_ready_agents: Set[str] = set()
 # Capture signal flag (True = can capture)
 sync_capture_signal: bool = False
 
+# Stop signal flag (True = agents should stop)
+sync_stop_signal: bool = False
+
 # Lock for synchronization system
 sync_lock = threading.Lock()
 
 # Event for notifying waiting Agents
 sync_capture_event = asyncio.Event()
+
+# Event for notifying waiting Agents to stop
+sync_stop_event = asyncio.Event()
 
 
 class SendMessageRequest(BaseModel):
@@ -260,19 +266,21 @@ async def clear_all_messages():
 async def sync_register_agents(request: SyncRegisterAgentsRequest):
     """
     Register list of Agents participating in synchronization
-    
+
     Called by Coordinator at startup to specify which Agents need to participate in synchronization.
     This clears previous synchronization state and starts a new synchronization session.
     """
-    global sync_expected_agents, sync_ready_agents, sync_capture_signal, sync_capture_event
-    
+    global sync_expected_agents, sync_ready_agents, sync_capture_signal, sync_capture_event, sync_stop_signal, sync_stop_event
+
     with sync_lock:
         sync_expected_agents = set(request.agent_ids)
         sync_ready_agents = set()
         sync_capture_signal = False
+        sync_stop_signal = False
         # Create new event object
         sync_capture_event = asyncio.Event()
-        
+        sync_stop_event = asyncio.Event()
+
         return {
             "status": "registered",
             "expected_agents": list(sync_expected_agents),
@@ -308,33 +316,55 @@ async def sync_ready(request: SyncReadyRequest):
 async def sync_wait_capture(request: SyncWaitCaptureRequest):
     """
     Child Agent blocks and waits for capture signal
-    
+
     Child Agent calls this API to block and wait after reporting ready.
     When Coordinator calls trigger_capture, this API returns,
     and child Agent can execute screenshot operation.
-    
+
     Args:
         agent_id: Agent identifier
         timeout: Maximum wait time (seconds), default 60 seconds
-    
+
     Returns:
-        should_capture: True means can capture
+        should_capture: True means can capture, False means timeout or stop signal
     """
-    global sync_capture_event
-    
+    global sync_capture_event, sync_stop_event
+
     # Get current event object reference
-    current_event = sync_capture_event
-    
+    current_capture_event = sync_capture_event
+    current_stop_event = sync_stop_event
+
     try:
-        # Wait for capture signal with timeout
-        await asyncio.wait_for(
-            current_event.wait(),
-            timeout=request.timeout
+        # Wait for either capture signal OR stop signal
+        done, pending = await asyncio.wait(
+            [current_capture_event.wait(), current_stop_event.wait()],
+            timeout=request.timeout,
+            return_when=asyncio.FIRST_COMPLETED
         )
-        return {
-            "should_capture": True,
-            "agent_id": request.agent_id
-        }
+
+        # Cancel pending tasks
+        for task in pending:
+            task.cancel()
+
+        # Check which event was triggered
+        if current_stop_event.is_set():
+            return {
+                "should_capture": False,
+                "agent_id": request.agent_id,
+                "error": "stop_signal_received"
+            }
+        elif current_capture_event.is_set():
+            return {
+                "should_capture": True,
+                "agent_id": request.agent_id
+            }
+        else:
+            return {
+                "should_capture": False,
+                "agent_id": request.agent_id,
+                "error": "timeout"
+            }
+
     except asyncio.TimeoutError:
         return {
             "should_capture": False,
@@ -403,21 +433,55 @@ async def sync_trigger_capture():
     }
 
 
+@app.post("/sync/trigger_stop")
+async def sync_trigger_stop():
+    """
+    Trigger stop signal for all agents
+
+    Called by Coordinator when it detects an error condition that requires
+    all agents to stop gracefully.
+    """
+    global sync_stop_signal, sync_stop_event
+
+    with sync_lock:
+        # Set stop signal
+        sync_stop_signal = True
+
+    # Notify all waiting Agents to stop
+    sync_stop_event.set()
+
+    # Brief delay then reset signal and event for next round
+    await asyncio.sleep(0.1)
+
+    with sync_lock:
+        sync_stop_signal = False
+
+    # Create new event object for next round
+    sync_stop_event = asyncio.Event()
+
+    return {
+        "status": "stop_triggered",
+        "message": "All agents have been signaled to stop"
+    }
+
+
 @app.delete("/sync/reset")
 async def sync_reset():
     """
     Reset synchronization state
-    
+
     Clear all synchronization-related state for debugging or restart.
     """
-    global sync_expected_agents, sync_ready_agents, sync_capture_signal, sync_capture_event
-    
+    global sync_expected_agents, sync_ready_agents, sync_capture_signal, sync_capture_event, sync_stop_signal, sync_stop_event
+
     with sync_lock:
         sync_expected_agents = set()
         sync_ready_agents = set()
         sync_capture_signal = False
+        sync_stop_signal = False
         sync_capture_event = asyncio.Event()
-        
+        sync_stop_event = asyncio.Event()
+
         return {"status": "reset"}
 
 
