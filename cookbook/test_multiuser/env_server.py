@@ -307,6 +307,16 @@ async def sync_ready(request: SyncReadyRequest):
     Child Agent calls this API at the start of PerceptionNode.exec(),
     indicating it's ready and waiting for Coordinator's capture signal.
     """
+    # Check if stop signal is active (for agents arriving after emergency stop)
+    with sync_lock:
+        if sync_stop_signal:
+            return {
+                "status": "stopped",
+                "agent_id": request.agent_id,
+                "error": "stop_signal_active",
+                "message": "System is in emergency stop state"
+            }
+    
     with sync_lock:
         # Add to ready set
         sync_ready_agents.add(request.agent_id)
@@ -339,7 +349,16 @@ async def sync_wait_capture(request: SyncWaitCaptureRequest):
     Returns:
         should_capture: True means can capture, False means timeout or stop signal
     """
-    global sync_capture_event, sync_stop_event
+    global sync_capture_event, sync_stop_event, sync_stop_signal
+
+    # Check if stop signal is already active (for agents arriving after emergency stop)
+    with sync_lock:
+        if sync_stop_signal:
+            return {
+                "should_capture": False,
+                "agent_id": request.agent_id,
+                "error": "stop_signal_received"
+            }
 
     # Get current event object reference
     current_capture_event = sync_capture_event
@@ -482,32 +501,24 @@ async def sync_trigger_stop():
     Called by Coordinator when it detects an error condition that requires
     all agents to stop gracefully.
     
-    Note: This is an emergency stop, so we keep the stop signal active
-    for a longer period to ensure all agents receive it.
+    Note: This is an emergency stop. The stop signal is kept active (not reset)
+    so that any agents that arrive later can also detect the stop state.
     """
     global sync_stop_signal, sync_stop_event
 
     with sync_lock:
-        # Set stop signal
+        # Set stop signal (keep it True, don't reset for emergency stop)
         sync_stop_signal = True
 
-    # Notify all waiting Agents to stop
+    # Notify all waiting Agents to stop (immediate notification via Event)
     sync_stop_event.set()
 
-    # Keep stop signal active for 30 seconds to ensure all agents receive it
-    # This is an emergency stop, so we don't reset immediately
-    await asyncio.sleep(30.0)
-
-    # After waiting, reset for cleanup (though system should be stopped by then)
-    with sync_lock:
-        sync_stop_signal = False
-
-    # Create new event object (for cleanup)
-    sync_stop_event = asyncio.Event()
+    # Brief delay to ensure event propagation, then return immediately
+    await asyncio.sleep(0.1)
 
     return {
         "status": "stop_triggered",
-        "message": "All agents have been signaled to stop"
+        "message": "All agents have been signaled to stop. Stop signal remains active."
     }
 
 

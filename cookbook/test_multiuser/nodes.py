@@ -262,6 +262,12 @@ class PerceptionNode(Node):
             resp.raise_for_status()
             
             data = resp.json()
+            
+            # Check if system is in stop state
+            if data.get("status") == "stopped" or data.get("error") == "stop_signal_active":
+                print(f"[{agent_id}] System is in emergency stop state, terminating...")
+                raise RuntimeError("Coordinator requested emergency stop")
+            
             ready_count = data.get("ready_count", 0)
             expected_count = data.get("expected_count", 0)
             
